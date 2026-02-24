@@ -47,6 +47,53 @@ meuzapdesk/
     └── provision-client.sh     # Provisionamento SaaS
 ```
 
+## Desenvolvimento Local
+
+Para testar o projeto localmente sem precisar de credenciais WhatsApp.
+
+**Pré-requisito:** Docker Desktop rodando.
+
+### 1. Suba o banco e Redis
+
+```bash
+cd meuzapdesk
+docker compose -f docker-compose.dev.yml up -d
+```
+
+### 2. Configure o ambiente do painel
+
+```bash
+cd panel
+cp .env.local.example .env.local
+```
+
+### 3. Instale as dependências e inicialize o banco
+
+```bash
+npm install
+npx prisma generate
+npx prisma migrate deploy   # aplica a migration inicial
+npx prisma db seed          # cria usuários de teste
+```
+
+### 4. Rode o painel
+
+```bash
+npm run dev
+```
+
+Acesse [http://localhost:3000](http://localhost:3000) e faça login com:
+
+| Perfil | E-mail | Senha |
+|--------|--------|-------|
+| Admin (dono) | `admin@teste.com` | `admin123` |
+| Mecânico | `mecanico@teste.com` | `mecanico123` |
+
+> O seed já cria uma conversa de exemplo na fila com 7 minutos sem resposta para visualizar os alertas.
+> O envio/recebimento real de WhatsApp só funciona com credenciais Meta preenchidas no `.env.local`.
+
+---
+
 ## Início Rápido (MVP)
 
 ### 1. Configure as variáveis de ambiente
