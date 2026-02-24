@@ -1,0 +1,114 @@
+{
+  "name": "2. Enviar Resposta do Mecânico",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "send-reply",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "webhook-trigger",
+      "name": "Webhook Enviar Resposta",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [100, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Payload esperado: { conversationId, phone, message, senderName, senderId, phoneNumberId }\nconst data = $input.first().json.body;\n\nif (!data.conversationId || !data.phone || !data.message || !data.senderName) {\n  throw new Error('Payload inválido: campos obrigatórios ausentes');\n}\n\n// Adiciona prefixo de assinatura automática\nconst messageWithSignature = `${data.senderName}: ${data.message}`;\n\nreturn [{\n  json: {\n    ...data,\n    messageWithSignature,\n    phoneNumberId: data.phoneNumberId || process.env.WA_PHONE_NUMBER_ID\n  }\n}];"
+      },
+      "id": "prepare-message",
+      "name": "Preparar Mensagem com Assinatura",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [300, 300]
+    },
+    {
+      "parameters": {
+        "url": "https://graph.facebook.com/v18.0/{{ $json.phoneNumberId }}/messages",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"messaging_product\": \"whatsapp\",\n  \"to\": \"{{ $json.phone }}\",\n  \"type\": \"text\",\n  \"text\": { \"body\": \"{{ $json.messageWithSignature }}\" }\n}",
+        "options": {
+          "response": {
+            "response": {
+              "neverError": false
+            }
+          }
+        }
+      },
+      "id": "send-whatsapp",
+      "name": "Enviar via WhatsApp API",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [500, 300],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "wa-token",
+          "name": "WhatsApp Bearer Token"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO messages (conversation_id, direction, content, sender_user_id, sent_at, wa_message_id)\nVALUES (\n  {{ $node['Preparar Mensagem com Assinatura'].json.conversationId }},\n  'out',\n  '{{ $node['Preparar Mensagem com Assinatura'].json.messageWithSignature.replace(/'/g, \"''\") }}',\n  {{ $node['Preparar Mensagem com Assinatura'].json.senderId }},\n  NOW(),\n  '{{ $json.messages[0].id }}'\n) RETURNING id",
+        "options": {}
+      },
+      "id": "save-message",
+      "name": "Salvar Mensagem no Banco",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2,
+      "position": [700, 300],
+      "credentials": {
+        "postgres": {
+          "id": "postgres-credentials",
+          "name": "PostgreSQL MeuZapDesk"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE conversations SET status = 'in_progress', assigned_user_id = {{ $node['Preparar Mensagem com Assinatura'].json.senderId }} WHERE id = {{ $node['Preparar Mensagem com Assinatura'].json.conversationId }}",
+        "options": {}
+      },
+      "id": "update-status",
+      "name": "Atualizar Status da Conversa",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2,
+      "position": [900, 300],
+      "credentials": {
+        "postgres": {
+          "id": "postgres-credentials",
+          "name": "PostgreSQL MeuZapDesk"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={ \"status\": \"sent\", \"messageId\": \"{{ $node['Salvar Mensagem no Banco'].json.id }}\" }",
+        "options": {}
+      },
+      "id": "respond-ok",
+      "name": "Responder com Sucesso",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [1100, 300]
+    }
+  ],
+  "connections": {
+    "Webhook Enviar Resposta": { "main": [[{ "node": "Preparar Mensagem com Assinatura", "type": "main", "index": 0 }]] },
+    "Preparar Mensagem com Assinatura": { "main": [[{ "node": "Enviar via WhatsApp API", "type": "main", "index": 0 }]] },
+    "Enviar via WhatsApp API": { "main": [[{ "node": "Salvar Mensagem no Banco", "type": "main", "index": 0 }]] },
+    "Salvar Mensagem no Banco": { "main": [[{ "node": "Atualizar Status da Conversa", "type": "main", "index": 0 }]] },
+    "Atualizar Status da Conversa": { "main": [[{ "node": "Responder com Sucesso", "type": "main", "index": 0 }]] }
+  },
+  "active": true,
+  "settings": { "executionOrder": "v1" },
+  "tags": ["whatsapp", "envio"]
+}

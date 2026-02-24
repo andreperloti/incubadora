@@ -1,0 +1,207 @@
+{
+  "name": "1. Receber Mensagem WhatsApp",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "whatsapp-webhook",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "webhook-trigger",
+      "name": "Webhook WhatsApp",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [100, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Valida e extrai dados da mensagem recebida pela Meta WhatsApp API\nconst body = $input.first().json.body;\n\nif (!body?.entry?.[0]?.changes?.[0]?.value?.messages?.[0]) {\n  // Pode ser uma notificação de status — ignorar\n  return [{ json: { skip: true } }];\n}\n\nconst value = body.entry[0].changes[0].value;\nconst message = value.messages[0];\nconst contact = value.contacts?.[0];\n\nreturn [{\n  json: {\n    skip: false,\n    phone: message.from,\n    customerName: contact?.profile?.name || message.from,\n    messageId: message.id,\n    messageType: message.type,\n    text: message.text?.body || '',\n    timestamp: message.timestamp,\n    phoneNumberId: value.metadata?.phone_number_id\n  }\n}];"
+      },
+      "id": "parse-message",
+      "name": "Parsear Mensagem",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [300, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            {
+              "value1": "={{ $json.skip }}",
+              "value2": true
+            }
+          ]
+        }
+      },
+      "id": "check-skip",
+      "name": "É Notificação de Status?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [500, 300]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT id, status FROM conversations WHERE customer_phone = '{{ $json.phone }}' AND status NOT IN ('resolved') ORDER BY created_at DESC LIMIT 1",
+        "options": {}
+      },
+      "id": "check-conversation",
+      "name": "Buscar Conversa Existente",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2,
+      "position": [700, 400],
+      "credentials": {
+        "postgres": {
+          "id": "postgres-credentials",
+          "name": "PostgreSQL MeuZapDesk"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "number": [
+            {
+              "value1": "={{ $json.length }}",
+              "operation": "equal",
+              "value2": 0
+            }
+          ]
+        }
+      },
+      "id": "is-new-conversation",
+      "name": "Conversa Nova?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [900, 400]
+    },
+    {
+      "parameters": {
+        "operation": "insert",
+        "table": "conversations",
+        "columns": "customer_phone, customer_name, status, created_at, last_customer_message_at",
+        "additionalFields": {}
+      },
+      "id": "create-conversation",
+      "name": "Criar Conversa",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2,
+      "position": [1100, 300],
+      "credentials": {
+        "postgres": {
+          "id": "postgres-credentials",
+          "name": "PostgreSQL MeuZapDesk"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "url": "https://graph.facebook.com/v18.0/{{ $node['Parsear Mensagem'].json.phoneNumberId }}/messages",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "messaging_product",
+              "value": "whatsapp"
+            },
+            {
+              "name": "to",
+              "value": "={{ $node['Parsear Mensagem'].json.phone }}"
+            },
+            {
+              "name": "type",
+              "value": "text"
+            },
+            {
+              "name": "text",
+              "value": "={ \"body\": \"Olá! Bem-vindo à {{ $env.BUSINESS_NAME || 'nossa oficina' }}. Como podemos ajudar?\\n\\n1️⃣ Orçamento — Já sei as peças e serviço\\n2️⃣ Orçamento — Preciso de diagnóstico\\n3️⃣ Status do meu serviço\\n4️⃣ Fornecedores e outros assuntos\" }"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "send-menu",
+      "name": "Enviar Menu Inicial",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [1300, 300]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE conversations SET last_customer_message_at = NOW(), status = CASE WHEN status = 'waiting_menu' THEN 'in_queue' ELSE status END WHERE id = {{ $json[0].id }} RETURNING id, status",
+        "options": {}
+      },
+      "id": "update-conversation",
+      "name": "Atualizar Conversa",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2,
+      "position": [1100, 500],
+      "credentials": {
+        "postgres": {
+          "id": "postgres-credentials",
+          "name": "PostgreSQL MeuZapDesk"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "insert",
+        "table": "messages",
+        "columns": "conversation_id, direction, content, sent_at, wa_message_id",
+        "additionalFields": {}
+      },
+      "id": "save-message",
+      "name": "Salvar Mensagem",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2,
+      "position": [1300, 500],
+      "credentials": {
+        "postgres": {
+          "id": "postgres-credentials",
+          "name": "PostgreSQL MeuZapDesk"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "{ \"status\": \"ok\" }",
+        "options": {}
+      },
+      "id": "respond-ok",
+      "name": "Responder 200 OK",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [1500, 400]
+    }
+  ],
+  "connections": {
+    "Webhook WhatsApp": { "main": [[{ "node": "Parsear Mensagem", "type": "main", "index": 0 }]] },
+    "Parsear Mensagem": { "main": [[{ "node": "É Notificação de Status?", "type": "main", "index": 0 }]] },
+    "É Notificação de Status?": {
+      "main": [
+        [{ "node": "Responder 200 OK", "type": "main", "index": 0 }],
+        [{ "node": "Buscar Conversa Existente", "type": "main", "index": 0 }]
+      ]
+    },
+    "Buscar Conversa Existente": { "main": [[{ "node": "Conversa Nova?", "type": "main", "index": 0 }]] },
+    "Conversa Nova?": {
+      "main": [
+        [{ "node": "Criar Conversa", "type": "main", "index": 0 }],
+        [{ "node": "Atualizar Conversa", "type": "main", "index": 0 }]
+      ]
+    },
+    "Criar Conversa": { "main": [[{ "node": "Enviar Menu Inicial", "type": "main", "index": 0 }]] },
+    "Enviar Menu Inicial": { "main": [[{ "node": "Responder 200 OK", "type": "main", "index": 0 }]] },
+    "Atualizar Conversa": { "main": [[{ "node": "Salvar Mensagem", "type": "main", "index": 0 }]] },
+    "Salvar Mensagem": { "main": [[{ "node": "Responder 200 OK", "type": "main", "index": 0 }]] }
+  },
+  "active": true,
+  "settings": { "executionOrder": "v1" },
+  "tags": ["whatsapp", "recepção"]
+}

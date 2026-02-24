@@ -1,0 +1,86 @@
+{
+  "name": "3. Cron de Alertas de SLA",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [{ "field": "cronExpression", "expression": "* * * * *" }]
+        }
+      },
+      "id": "cron-trigger",
+      "name": "Cron a cada 1 minuto",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1,
+      "position": [100, 300]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT\n  c.id,\n  c.customer_phone,\n  c.customer_name,\n  c.status,\n  c.last_customer_message_at,\n  EXTRACT(EPOCH FROM (NOW() - c.last_customer_message_at)) / 60 AS minutes_waiting,\n  CASE\n    WHEN EXTRACT(EPOCH FROM (NOW() - c.last_customer_message_at)) / 60 >= {{ $env.ALERT_URGENT_MINUTES || 15 }} THEN 'urgent'\n    WHEN EXTRACT(EPOCH FROM (NOW() - c.last_customer_message_at)) / 60 >= {{ $env.ALERT_WARN_MINUTES || 5 }} THEN 'warning'\n    ELSE 'ok'\n  END AS alert_level\nFROM conversations c\nWHERE c.status IN ('in_queue', 'in_progress')\n  AND c.last_customer_message_at IS NOT NULL\nORDER BY c.last_customer_message_at ASC",
+        "options": {}
+      },
+      "id": "check-sla",
+      "name": "Verificar SLAs",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2,
+      "position": [300, 300],
+      "credentials": {
+        "postgres": {
+          "id": "postgres-credentials",
+          "name": "PostgreSQL MeuZapDesk"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Filtra apenas conversas com alerta\nconst conversations = $input.all().map(i => i.json);\n\nconst alertsToSave = conversations.filter(c => c.alert_level !== 'ok');\n\nif (alertsToSave.length === 0) {\n  return [{ json: { alerts: [], count: 0 } }];\n}\n\nreturn alertsToSave.map(c => ({ json: c }));"
+      },
+      "id": "filter-alerts",
+      "name": "Filtrar Alertas",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [500, 300]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO conversation_alerts (conversation_id, alert_level, minutes_waiting, created_at)\nVALUES ({{ $json.id }}, '{{ $json.alert_level }}', {{ $json.minutes_waiting }}, NOW())\nON CONFLICT (conversation_id, alert_level)\nDO UPDATE SET minutes_waiting = EXCLUDED.minutes_waiting, updated_at = NOW()\nRETURNING id",
+        "options": {}
+      },
+      "id": "upsert-alert",
+      "name": "Upsert Alerta no Banco",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2,
+      "position": [700, 300],
+      "credentials": {
+        "postgres": {
+          "id": "postgres-credentials",
+          "name": "PostgreSQL MeuZapDesk"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "url": "http://nextjs:3000/api/sse/broadcast",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"type\": \"alert\",\n  \"conversationId\": {{ $json.id }},\n  \"alertLevel\": \"{{ $json.alert_level }}\",\n  \"minutesWaiting\": {{ $json.minutes_waiting }},\n  \"customerName\": \"{{ $json.customer_name }}\"\n}",
+        "options": {}
+      },
+      "id": "notify-panel",
+      "name": "Notificar Painel via SSE",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [900, 300]
+    }
+  ],
+  "connections": {
+    "Cron a cada 1 minuto": { "main": [[{ "node": "Verificar SLAs", "type": "main", "index": 0 }]] },
+    "Verificar SLAs": { "main": [[{ "node": "Filtrar Alertas", "type": "main", "index": 0 }]] },
+    "Filtrar Alertas": { "main": [[{ "node": "Upsert Alerta no Banco", "type": "main", "index": 0 }]] },
+    "Upsert Alerta no Banco": { "main": [[{ "node": "Notificar Painel via SSE", "type": "main", "index": 0 }]] }
+  },
+  "active": true,
+  "settings": { "executionOrder": "v1" },
+  "tags": ["cron", "alertas", "sla"]
+}

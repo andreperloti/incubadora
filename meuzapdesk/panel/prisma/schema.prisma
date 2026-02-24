@@ -1,0 +1,101 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Business {
+  id              Int            @id @default(autoincrement())
+  name            String
+  whatsappNumber  String         @map("whatsapp_number")
+  waApiToken      String         @map("wa_api_token")
+  waPhoneNumberId String         @map("wa_phone_number_id")
+  settingsJson    Json?          @map("settings_json")
+  createdAt       DateTime       @default(now()) @map("created_at")
+  users           User[]
+  conversations   Conversation[]
+
+  @@map("businesses")
+}
+
+model User {
+  id           Int            @id @default(autoincrement())
+  businessId   Int            @map("business_id")
+  name         String
+  email        String         @unique
+  passwordHash String         @map("password_hash")
+  role         UserRole       @default(MECHANIC)
+  createdAt    DateTime       @default(now()) @map("created_at")
+  business     Business       @relation(fields: [businessId], references: [id])
+  conversations Conversation[] @relation("AssignedConversations")
+  messages     Message[]
+
+  @@map("users")
+}
+
+enum UserRole {
+  OWNER
+  MECHANIC
+}
+
+model Conversation {
+  id                    Int              @id @default(autoincrement())
+  businessId            Int              @map("business_id")
+  customerPhone         String           @map("customer_phone")
+  customerName          String?          @map("customer_name")
+  status                ConversationStatus @default(waiting_menu)
+  optionSelected        Int?             @map("option_selected")
+  priorityScore         Int              @default(0) @map("priority_score")
+  assignedUserId        Int?             @map("assigned_user_id")
+  createdAt             DateTime         @default(now()) @map("created_at")
+  lastCustomerMessageAt DateTime?        @map("last_customer_message_at")
+  resolvedAt            DateTime?        @map("resolved_at")
+  business              Business         @relation(fields: [businessId], references: [id])
+  assignedUser          User?            @relation("AssignedConversations", fields: [assignedUserId], references: [id])
+  messages              Message[]
+  alerts                ConversationAlert[]
+
+  @@map("conversations")
+}
+
+enum ConversationStatus {
+  waiting_menu
+  in_queue
+  in_progress
+  resolved
+}
+
+model Message {
+  id             Int          @id @default(autoincrement())
+  conversationId Int          @map("conversation_id")
+  direction      Direction
+  content        String
+  senderUserId   Int?         @map("sender_user_id")
+  sentAt         DateTime     @default(now()) @map("sent_at")
+  waMessageId    String?      @map("wa_message_id")
+  conversation   Conversation @relation(fields: [conversationId], references: [id])
+  senderUser     User?        @relation(fields: [senderUserId], references: [id])
+
+  @@map("messages")
+}
+
+enum Direction {
+  in
+  out
+}
+
+model ConversationAlert {
+  id             Int          @id @default(autoincrement())
+  conversationId Int          @map("conversation_id")
+  alertLevel     String       @map("alert_level")
+  minutesWaiting Float        @map("minutes_waiting")
+  createdAt      DateTime     @default(now()) @map("created_at")
+  updatedAt      DateTime     @updatedAt @map("updated_at")
+  conversation   Conversation @relation(fields: [conversationId], references: [id])
+
+  @@unique([conversationId, alertLevel])
+  @@map("conversation_alerts")
+}
