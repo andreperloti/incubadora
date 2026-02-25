@@ -50,7 +50,12 @@ export async function sendWhatsAppMessage({
       return { success: false, error: data.message || 'Erro ao enviar mensagem' }
     }
 
-    return { success: true, messageId: data.id }
+    // data.id é um objeto no WEBJS engine; extrai o _serialized como string
+    const messageId = typeof data.id === 'object'
+      ? (data.id?._serialized ?? data.id?.id ?? null)
+      : (data.id ?? null)
+
+    return { success: true, messageId }
   } catch (err) {
     return { success: false, error: String(err) }
   }
