@@ -68,7 +68,7 @@ export default function WhatsAppSetupPage() {
       const res = await fetch('/api/admin/import-history', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ chatsLimit: 20, messagesPerChat: 100 }),
+        body: JSON.stringify({ chatsLimit: 50, messagesPerChat: 100 }),
       })
       const data = await res.json()
       if (!res.ok) {

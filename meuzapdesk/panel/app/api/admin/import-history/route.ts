@@ -10,14 +10,18 @@ function wahaHeaders() {
   return { 'Content-Type': 'application/json', 'X-Api-Key': WAHA_API_KEY }
 }
 
-// Normaliza o ID da mensagem do WAHA (pode ser string ou objeto)
-function extractWaMessageId(id: unknown): string {
+// Normaliza IDs do WAHA — podem ser string ou objeto {_serialized, user, server}
+function extractId(id: unknown): string {
   if (typeof id === 'string') return id
   if (typeof id === 'object' && id !== null) {
     const obj = id as Record<string, unknown>
     return (obj._serialized ?? obj.id ?? '') as string
   }
   return ''
+}
+
+function extractPhone(chatId: unknown): string {
+  return extractId(chatId).replace('@c.us', '')
 }
 
 export async function POST(req: NextRequest) {
@@ -57,9 +61,12 @@ export async function POST(req: NextRequest) {
   const chatsData = await chatsRes.json()
   const allChats: any[] = Array.isArray(chatsData) ? chatsData : (chatsData.chats ?? [])
 
-  // Filtra apenas chats individuais (não grupos, newsletters, broadcasts)
+  // Filtra apenas chats individuais (@c.us) — o id pode ser objeto ou string
   const individualChats = allChats
-    .filter((c: any) => String(c.id ?? '').endsWith('@c.us'))
+    .filter((c: any) => {
+      const serialized = extractId(c.id)
+      return serialized.endsWith('@c.us') && !c.isGroup
+    })
     .slice(0, chatsLimit)
 
   let importedConversations = 0
@@ -67,12 +74,13 @@ export async function POST(req: NextRequest) {
   let skippedChats = 0
 
   for (const chat of individualChats) {
-    const phone = String(chat.id).replace('@c.us', '')
+    const chatId = extractId(chat.id)
+    const phone = extractPhone(chat.id)
     const customerName = chat.name || chat.displayName || phone
 
     // Busca mensagens do chat
     const msgsRes = await fetch(
-      `${WAHA_API_URL}/api/${wahaSession}/chats/${encodeURIComponent(chat.id)}/messages?limit=${messagesPerChat}&downloadMedia=false`,
+      `${WAHA_API_URL}/api/${wahaSession}/chats/${encodeURIComponent(chatId)}/messages?limit=${messagesPerChat}&downloadMedia=false`,
       { headers: wahaHeaders() }
     ).catch(() => null)
 
@@ -126,7 +134,7 @@ export async function POST(req: NextRequest) {
 
     // Salva as mensagens novas
     for (const msg of textMessages) {
-      const waMessageId = extractWaMessageId(msg.id)
+      const waMessageId = extractId(msg.id)
       if (!waMessageId || existingIds.has(waMessageId)) continue
 
       await prisma.message.create({
