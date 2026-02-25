@@ -24,6 +24,9 @@ export default function WhatsAppSetupPage() {
   const [qr, setQr] = useState<string | null>(null)
   const [actionLoading, setActionLoading] = useState(false)
   const [error, setError] = useState('')
+  const [importLoading, setImportLoading] = useState(false)
+  const [importResult, setImportResult] = useState<{ conversations: number; messages: number } | null>(null)
+  const [importError, setImportError] = useState('')
 
   const fetchStatus = useCallback(async () => {
     const res = await fetch('/api/admin/waha')
@@ -56,6 +59,29 @@ export default function WhatsAppSetupPage() {
     const interval = setInterval(fetchQr, 15000)
     return () => clearInterval(interval)
   }, [info?.status, fetchQr])
+
+  async function handleImportHistory() {
+    setImportLoading(true)
+    setImportError('')
+    setImportResult(null)
+    try {
+      const res = await fetch('/api/admin/import-history', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ chatsLimit: 20, messagesPerChat: 100 }),
+      })
+      const data = await res.json()
+      if (!res.ok) {
+        setImportError(data.error ?? 'Erro ao importar histórico')
+      } else {
+        setImportResult(data.imported)
+      }
+    } catch {
+      setImportError('Erro de conexão')
+    } finally {
+      setImportLoading(false)
+    }
+  }
 
   async function handleAction(action: 'start' | 'stop') {
     setActionLoading(true)
@@ -204,6 +230,46 @@ export default function WhatsAppSetupPage() {
             <li>Acesse <strong>Menu → Aparelhos conectados → Conectar aparelho</strong></li>
             <li>Aponte a câmera para o QR Code</li>
           </ol>
+        </div>
+      )}
+
+      {/* Importar histórico */}
+      {status === 'WORKING' && (
+        <div
+          className="rounded-xl p-6 mt-6"
+          style={{ background: '#202c33', border: '1px solid #2a3942' }}
+        >
+          <p className="text-sm font-semibold mb-1" style={{ color: '#e9edef' }}>
+            Importar histórico de conversas
+          </p>
+          <p className="text-xs mb-4" style={{ color: '#8696a0' }}>
+            Importa as últimas 20 conversas individuais do WhatsApp para o histórico do painel.
+            Mensagens já importadas são ignoradas automaticamente.
+          </p>
+
+          {importResult && (
+            <div
+              className="mb-4 px-4 py-3 rounded-lg text-xs"
+              style={{ background: '#064e3b', color: '#34d399' }}
+            >
+              Importação concluída: <strong>{importResult.conversations}</strong> novas conversas,{' '}
+              <strong>{importResult.messages}</strong> mensagens importadas.
+            </div>
+          )}
+
+          {importError && (
+            <p className="mb-4 text-xs px-3 py-2 rounded-lg" style={{ background: '#450a0a', color: '#f87171' }}>
+              {importError}
+            </p>
+          )}
+
+          <button
+            onClick={handleImportHistory}
+            disabled={importLoading}
+            className="bg-green-600 hover:bg-green-700 text-white text-sm font-semibold px-5 py-2 rounded-lg transition disabled:opacity-60"
+          >
+            {importLoading ? '⏳ Importando...' : '📥 Importar histórico'}
+          </button>
         </div>
       )}
     </div>
