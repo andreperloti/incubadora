@@ -57,16 +57,24 @@ export function UserModal({ user, onClose, onSaved }: Props) {
     }
   }
 
+  const inputClass = "w-full rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
+  const inputStyle = { background: '#2a3942', border: '1px solid #3d5060', color: '#e9edef' }
+  const labelStyle = { color: '#8696a0' }
+
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-      <div className="bg-white rounded-2xl shadow-xl w-full max-w-md mx-4 p-6">
+    <div className="fixed inset-0 z-50 flex items-center justify-center" style={{ background: 'rgba(0,0,0,0.6)' }}>
+      <div
+        className="w-full max-w-md mx-4 p-6 rounded-2xl shadow-2xl"
+        style={{ background: '#202c33', border: '1px solid #2a3942' }}
+      >
         <div className="flex items-center justify-between mb-5">
-          <h3 className="text-lg font-bold text-gray-900">
+          <h3 className="text-base font-bold" style={{ color: '#e9edef' }}>
             {isEdit ? 'Editar usuário' : 'Novo usuário'}
           </h3>
           <button
             onClick={onClose}
-            className="text-gray-400 hover:text-gray-700 text-xl leading-none"
+            className="text-xl leading-none hover:text-white transition"
+            style={{ color: '#8696a0' }}
           >
             ×
           </button>
@@ -74,47 +82,51 @@ export function UserModal({ user, onClose, onSaved }: Props) {
 
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Nome</label>
+            <label className="block text-xs font-medium mb-1" style={labelStyle}>Nome</label>
             <input
               type="text"
               value={name}
               onChange={(e) => setName(e.target.value)}
               required
-              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
+              className={inputClass}
+              style={inputStyle}
             />
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">E-mail</label>
+            <label className="block text-xs font-medium mb-1" style={labelStyle}>E-mail</label>
             <input
               type="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               required
-              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
+              className={inputClass}
+              style={inputStyle}
             />
           </div>
 
           {!isEdit && (
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Senha</label>
+              <label className="block text-xs font-medium mb-1" style={labelStyle}>Senha</label>
               <input
                 type="password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 required
                 minLength={6}
-                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
+                className={inputClass}
+                style={inputStyle}
               />
             </div>
           )}
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Perfil</label>
+            <label className="block text-xs font-medium mb-1" style={labelStyle}>Perfil</label>
             <select
               value={role}
               onChange={(e) => setRole(e.target.value)}
-              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
+              className={inputClass}
+              style={inputStyle}
             >
               <option value="MECHANIC">Atendente</option>
               <option value="OWNER">Admin (Owner)</option>
@@ -122,14 +134,15 @@ export function UserModal({ user, onClose, onSaved }: Props) {
           </div>
 
           {error && (
-            <p className="text-sm text-red-600 bg-red-50 px-3 py-2 rounded-lg">{error}</p>
+            <p className="text-xs bg-red-900 text-red-300 px-3 py-2 rounded-lg">{error}</p>
           )}
 
           <div className="flex gap-3 pt-2">
             <button
               type="button"
               onClick={onClose}
-              className="flex-1 border border-gray-300 text-gray-700 rounded-lg py-2 text-sm hover:bg-gray-50 transition"
+              className="flex-1 rounded-lg py-2 text-sm transition"
+              style={{ border: '1px solid #2a3942', color: '#8696a0' }}
             >
               Cancelar
             </button>

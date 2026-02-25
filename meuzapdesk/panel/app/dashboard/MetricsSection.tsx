@@ -23,12 +23,27 @@ type Metrics = {
   volumePorHora: { hora: string; conversas: number }[]
 }
 
-function KpiCard({ label, value, sub, color }: { label: string; value: string | number; sub?: string; color: string }) {
+function KpiCard({
+  label,
+  value,
+  sub,
+  accent,
+}: {
+  label: string
+  value: string | number
+  sub?: string
+  accent: string
+}) {
   return (
-    <div className="bg-white rounded-xl border border-gray-200 p-5 shadow-sm">
-      <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">{label}</p>
-      <p className={`text-3xl font-extrabold ${color}`}>{value}</p>
-      {sub && <p className="text-xs text-gray-400 mt-1">{sub}</p>}
+    <div
+      className="rounded-xl p-5"
+      style={{ background: '#202c33', border: '1px solid #2a3942' }}
+    >
+      <p className="text-xs font-semibold uppercase tracking-wide mb-1" style={{ color: '#8696a0' }}>
+        {label}
+      </p>
+      <p className={`text-3xl font-extrabold ${accent}`}>{value}</p>
+      {sub && <p className="text-xs mt-1" style={{ color: '#667781' }}>{sub}</p>}
     </div>
   )
 }
@@ -49,7 +64,7 @@ export function MetricsSection() {
 
   if (loading) {
     return (
-      <div className="mt-8 text-center text-gray-400 text-sm py-8">
+      <div className="mt-8 text-center text-sm py-8" style={{ color: '#8696a0' }}>
         Carregando métricas...
       </div>
     )
@@ -60,44 +75,39 @@ export function MetricsSection() {
   const maxServico = Math.max(...metrics.servicos.map((s) => s.count), 1)
 
   return (
-    <div className="mt-10 space-y-8">
-      <h2 className="text-lg font-semibold text-gray-800">Métricas do dia</h2>
-
+    <div className="space-y-6">
       {/* KPI Cards */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <KpiCard
-          label="Conversas abertas"
-          value={metrics.kpis.abertas}
-          color="text-blue-600"
-        />
-        <KpiCard
-          label="Resolvidas hoje"
-          value={metrics.kpis.resolvidasHoje}
-          color="text-green-600"
-        />
+        <KpiCard label="Conversas abertas" value={metrics.kpis.abertas} accent="text-blue-400" />
+        <KpiCard label="Resolvidas hoje" value={metrics.kpis.resolvidasHoje} accent="text-green-400" />
         <KpiCard
           label="Tempo médio"
           value={`${metrics.kpis.tempoMedioResposta} min`}
           sub="do início ao encerramento"
-          color="text-purple-600"
+          accent="text-purple-400"
         />
         <KpiCard
           label="Alertas ativos"
           value={metrics.kpis.alertasAtivos}
-          color={metrics.kpis.alertasAtivos > 0 ? 'text-red-600' : 'text-gray-500'}
+          accent={metrics.kpis.alertasAtivos > 0 ? 'text-red-400' : 'text-gray-400'}
         />
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        {/* Ranking de atendentes */}
-        <div className="bg-white rounded-xl border border-gray-200 p-5 shadow-sm">
-          <h3 className="text-sm font-semibold text-gray-700 mb-4">Ranking de atendentes (hoje)</h3>
+        {/* Ranking */}
+        <div
+          className="rounded-xl p-5"
+          style={{ background: '#202c33', border: '1px solid #2a3942' }}
+        >
+          <h3 className="text-sm font-semibold mb-4" style={{ color: '#e9edef' }}>
+            Ranking de atendentes (hoje)
+          </h3>
           {metrics.ranking.length === 0 ? (
-            <p className="text-sm text-gray-400">Nenhum atendimento encerrado hoje.</p>
+            <p className="text-sm" style={{ color: '#8696a0' }}>Nenhum atendimento encerrado hoje.</p>
           ) : (
             <table className="w-full text-sm">
               <thead>
-                <tr className="text-xs text-gray-500 border-b border-gray-100">
+                <tr className="text-xs border-b" style={{ color: '#8696a0', borderColor: '#2a3942' }}>
                   <th className="text-left pb-2">Atendente</th>
                   <th className="text-right pb-2">Atendidos</th>
                   <th className="text-right pb-2">Tempo médio</th>
@@ -105,13 +115,17 @@ export function MetricsSection() {
               </thead>
               <tbody>
                 {metrics.ranking.map((r, i) => (
-                  <tr key={r.name} className="border-b border-gray-50 last:border-0">
-                    <td className="py-2 font-medium text-gray-800">
-                      <span className="text-gray-400 mr-2 text-xs">#{i + 1}</span>
+                  <tr
+                    key={r.name}
+                    className="border-b last:border-0"
+                    style={{ borderColor: '#2a3942' }}
+                  >
+                    <td className="py-2 font-medium" style={{ color: '#e9edef' }}>
+                      <span className="mr-2 text-xs" style={{ color: '#8696a0' }}>#{i + 1}</span>
                       {r.name}
                     </td>
-                    <td className="py-2 text-right text-green-600 font-bold">{r.atendidas}</td>
-                    <td className="py-2 text-right text-gray-500">{r.tempoMedio} min</td>
+                    <td className="py-2 text-right font-bold text-green-400">{r.atendidas}</td>
+                    <td className="py-2 text-right" style={{ color: '#8696a0' }}>{r.tempoMedio} min</td>
                   </tr>
                 ))}
               </tbody>
@@ -119,24 +133,27 @@ export function MetricsSection() {
           )}
         </div>
 
-        {/* Serviços mais solicitados */}
-        <div className="bg-white rounded-xl border border-gray-200 p-5 shadow-sm">
-          <h3 className="text-sm font-semibold text-gray-700 mb-4">
+        {/* Serviços */}
+        <div
+          className="rounded-xl p-5"
+          style={{ background: '#202c33', border: '1px solid #2a3942' }}
+        >
+          <h3 className="text-sm font-semibold mb-4" style={{ color: '#e9edef' }}>
             Serviços mais solicitados (hoje)
           </h3>
           {metrics.servicos.length === 0 ? (
-            <p className="text-sm text-gray-400">Nenhum dado disponível.</p>
+            <p className="text-sm" style={{ color: '#8696a0' }}>Nenhum dado disponível.</p>
           ) : (
             <div className="space-y-3">
               {metrics.servicos.map((s) => (
                 <div key={s.label}>
-                  <div className="flex items-center justify-between text-xs text-gray-600 mb-1">
+                  <div className="flex items-center justify-between text-xs mb-1" style={{ color: '#8696a0' }}>
                     <span>{s.label}</span>
-                    <span className="font-semibold">{s.count}</span>
+                    <span className="font-semibold text-green-400">{s.count}</span>
                   </div>
-                  <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
+                  <div className="h-2 rounded-full overflow-hidden" style={{ background: '#2a3942' }}>
                     <div
-                      className="h-full bg-green-500 rounded-full"
+                      className="h-full rounded-full bg-green-500"
                       style={{ width: `${(s.count / maxServico) * 100}%` }}
                     />
                   </div>
@@ -148,27 +165,47 @@ export function MetricsSection() {
       </div>
 
       {/* Volume por hora */}
-      <div className="bg-white rounded-xl border border-gray-200 p-5 shadow-sm">
-        <h3 className="text-sm font-semibold text-gray-700 mb-4">
+      <div
+        className="rounded-xl p-5"
+        style={{ background: '#202c33', border: '1px solid #2a3942' }}
+      >
+        <h3 className="text-sm font-semibold mb-4" style={{ color: '#e9edef' }}>
           Volume de conversas por hora (últimas 24h)
         </h3>
         <ResponsiveContainer width="100%" height={200}>
-          <AreaChart data={metrics.volumePorHora} margin={{ top: 4, right: 8, left: -20, bottom: 0 }}>
+          <AreaChart
+            data={metrics.volumePorHora}
+            margin={{ top: 4, right: 8, left: -20, bottom: 0 }}
+          >
             <defs>
               <linearGradient id="colorVol" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="5%" stopColor="#25D366" stopOpacity={0.3} />
+                <stop offset="5%" stopColor="#25D366" stopOpacity={0.4} />
                 <stop offset="95%" stopColor="#25D366" stopOpacity={0} />
               </linearGradient>
             </defs>
-            <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+            <CartesianGrid strokeDasharray="3 3" stroke="#2a3942" />
             <XAxis
               dataKey="hora"
-              tick={{ fontSize: 10, fill: '#9ca3af' }}
+              tick={{ fontSize: 10, fill: '#8696a0' }}
               interval={3}
+              axisLine={{ stroke: '#2a3942' }}
+              tickLine={false}
             />
-            <YAxis tick={{ fontSize: 10, fill: '#9ca3af' }} allowDecimals={false} />
+            <YAxis
+              tick={{ fontSize: 10, fill: '#8696a0' }}
+              allowDecimals={false}
+              axisLine={{ stroke: '#2a3942' }}
+              tickLine={false}
+            />
             <Tooltip
-              contentStyle={{ fontSize: 12, borderRadius: 8, border: '1px solid #e5e7eb' }}
+              contentStyle={{
+                fontSize: 12,
+                borderRadius: 8,
+                background: '#2a3942',
+                border: '1px solid #3d5060',
+                color: '#e9edef',
+              }}
+              labelStyle={{ color: '#8696a0' }}
             />
             <Area
               type="monotone"

@@ -53,7 +53,7 @@ export function UsersClient({ users: initial }: { users: User[] }) {
   return (
     <div>
       <div className="flex items-center justify-between mb-6">
-        <h1 className="text-xl font-bold text-gray-900">Usuários</h1>
+        <h1 className="text-lg font-bold" style={{ color: '#e9edef' }}>Usuários</h1>
         <button
           onClick={openNew}
           className="bg-green-600 hover:bg-green-700 text-white text-sm font-semibold px-4 py-2 rounded-lg transition"
@@ -62,28 +62,36 @@ export function UsersClient({ users: initial }: { users: User[] }) {
         </button>
       </div>
 
-      <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden">
+      <div className="rounded-xl overflow-hidden" style={{ background: '#202c33', border: '1px solid #2a3942' }}>
         <table className="w-full text-sm">
-          <thead className="bg-gray-50 border-b border-gray-200">
+          <thead style={{ borderBottom: '1px solid #2a3942' }}>
             <tr>
-              <th className="text-left px-4 py-3 font-semibold text-gray-600">Nome</th>
-              <th className="text-left px-4 py-3 font-semibold text-gray-600">E-mail</th>
-              <th className="text-left px-4 py-3 font-semibold text-gray-600">Perfil</th>
-              <th className="text-left px-4 py-3 font-semibold text-gray-600">Status</th>
-              <th className="text-left px-4 py-3 font-semibold text-gray-600">Ações</th>
+              {['Nome', 'E-mail', 'Perfil', 'Status', 'Ações'].map((h) => (
+                <th
+                  key={h}
+                  className="text-left px-4 py-3 text-xs font-semibold uppercase tracking-wide"
+                  style={{ color: '#8696a0' }}
+                >
+                  {h}
+                </th>
+              ))}
             </tr>
           </thead>
           <tbody>
             {users.map((user) => (
-              <tr key={user.id} className="border-b border-gray-100 last:border-0 hover:bg-gray-50">
-                <td className="px-4 py-3 font-medium text-gray-900">{user.name}</td>
-                <td className="px-4 py-3 text-gray-600">{user.email}</td>
+              <tr
+                key={user.id}
+                className="border-b last:border-0 transition"
+                style={{ borderColor: '#2a3942' }}
+              >
+                <td className="px-4 py-3 font-medium" style={{ color: '#e9edef' }}>{user.name}</td>
+                <td className="px-4 py-3" style={{ color: '#8696a0' }}>{user.email}</td>
                 <td className="px-4 py-3">
                   <span
                     className={`inline-flex px-2 py-0.5 rounded-full text-xs font-semibold ${
                       user.role === 'OWNER'
-                        ? 'bg-purple-100 text-purple-700'
-                        : 'bg-blue-100 text-blue-700'
+                        ? 'bg-purple-900 text-purple-300'
+                        : 'bg-blue-900 text-blue-300'
                     }`}
                   >
                     {user.role === 'OWNER' ? 'Admin' : 'Atendente'}
@@ -93,27 +101,29 @@ export function UsersClient({ users: initial }: { users: User[] }) {
                   <span
                     className={`inline-flex px-2 py-0.5 rounded-full text-xs font-semibold ${
                       user.active
-                        ? 'bg-green-100 text-green-700'
-                        : 'bg-gray-100 text-gray-500'
+                        ? 'bg-green-900 text-green-400'
+                        : 'bg-gray-800 text-gray-500'
                     }`}
                   >
                     {user.active ? 'Ativo' : 'Inativo'}
                   </span>
                 </td>
                 <td className="px-4 py-3">
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-3">
                     <button
                       onClick={() => openEdit(user)}
-                      className="text-xs text-blue-600 hover:underline"
+                      className="text-xs text-blue-400 hover:text-blue-300 transition"
                     >
                       Editar
                     </button>
                     <button
                       onClick={() => handleToggleActive(user)}
                       disabled={loading}
-                      className={`text-xs hover:underline ${
-                        user.active ? 'text-red-500' : 'text-green-600'
-                      } disabled:opacity-50`}
+                      className={`text-xs transition disabled:opacity-50 ${
+                        user.active
+                          ? 'text-red-400 hover:text-red-300'
+                          : 'text-green-400 hover:text-green-300'
+                      }`}
                     >
                       {user.active ? 'Desativar' : 'Ativar'}
                     </button>
@@ -123,7 +133,7 @@ export function UsersClient({ users: initial }: { users: User[] }) {
             ))}
             {users.length === 0 && (
               <tr>
-                <td colSpan={5} className="px-4 py-8 text-center text-gray-400">
+                <td colSpan={5} className="px-4 py-8 text-center text-sm" style={{ color: '#8696a0' }}>
                   Nenhum usuário cadastrado.
                 </td>
               </tr>

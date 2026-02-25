@@ -2,56 +2,76 @@ import Link from 'next/link'
 import { getServerSession } from 'next-auth'
 import { redirect } from 'next/navigation'
 import { authOptions } from '@/lib/auth'
+import { SignOutButton } from '@/components/SignOutButton'
 
 export default async function AdminLayout({ children }: { children: React.ReactNode }) {
   const session = await getServerSession(authOptions)
   if (!session || (session.user as any).role !== 'OWNER') {
-    redirect('/dashboard')
+    redirect('/atendimento')
   }
 
+  const user = session.user as any
+
   return (
-    <div className="min-h-screen bg-gray-50 flex flex-col">
-      {/* Header */}
-      <header className="bg-white border-b border-gray-200 px-6 py-4 flex items-center justify-between">
-        <div className="flex items-center gap-4">
-          <Link href="/dashboard" className="flex items-center gap-2">
-            <span className="text-2xl">💬</span>
-            <span className="font-bold text-gray-800">MeuZapDesk</span>
-          </Link>
-          <span className="text-gray-300">|</span>
-          <span className="text-sm font-semibold text-green-700 bg-green-50 px-3 py-1 rounded-full">
-            Área Admin
-          </span>
+    <div className="min-h-screen flex flex-col" style={{ background: '#111b21' }}>
+      {/* Top bar */}
+      <header
+        className="flex-shrink-0 flex items-center justify-between px-4 py-2"
+        style={{ background: '#202c33', borderBottom: '1px solid #2a3942' }}
+      >
+        <div className="flex items-center gap-2">
+          <span className="text-lg">💬</span>
+          <span className="font-bold text-sm text-gray-100">MeuZapDesk</span>
+          <span className="text-xs ml-1" style={{ color: '#8696a0' }}>— {user.businessName}</span>
         </div>
-        <Link
-          href="/dashboard"
-          className="text-sm text-gray-500 hover:text-gray-800 transition"
-        >
-          ← Voltar ao painel
-        </Link>
+        <div className="flex items-center gap-4">
+          <Link
+            href="/atendimento"
+            className="text-xs text-green-400 hover:text-green-300 transition"
+          >
+            💬 Atendimento
+          </Link>
+          <Link
+            href="/dashboard"
+            className="text-xs hover:text-white transition"
+            style={{ color: '#8696a0' }}
+          >
+            📊 Métricas
+          </Link>
+          <span className="text-xs" style={{ color: '#8696a0' }}>{user.name}</span>
+          <SignOutButton />
+        </div>
       </header>
 
-      <div className="flex flex-1">
+      <div className="flex flex-1 overflow-hidden">
         {/* Sidebar */}
-        <aside className="w-48 bg-white border-r border-gray-200 py-6 px-4">
-          <nav className="space-y-1">
+        <aside
+          className="w-48 flex-shrink-0 py-4"
+          style={{ background: '#111b21', borderRight: '1px solid #2a3942' }}
+        >
+          <p className="px-4 pb-2 text-xs font-semibold uppercase tracking-wider" style={{ color: '#667781' }}>
+            Administração
+          </p>
+          <nav className="space-y-0.5 px-2">
             <Link
               href="/admin/users"
-              className="flex items-center gap-2 px-3 py-2 text-sm font-medium text-gray-700 rounded-lg hover:bg-gray-100 transition"
+              className="flex items-center gap-2 px-3 py-2 text-sm rounded-lg transition"
+              style={{ color: '#8696a0' }}
             >
               👥 Usuários
             </Link>
             <Link
               href="/admin/whatsapp"
-              className="flex items-center gap-2 px-3 py-2 text-sm font-medium text-gray-700 rounded-lg hover:bg-gray-100 transition"
+              className="flex items-center gap-2 px-3 py-2 text-sm rounded-lg transition"
+              style={{ color: '#8696a0' }}
             >
               📱 WhatsApp
             </Link>
           </nav>
         </aside>
 
-        {/* Conteúdo */}
-        <main className="flex-1 p-6">{children}</main>
+        {/* Content */}
+        <main className="flex-1 p-6 overflow-y-auto">{children}</main>
       </div>
     </div>
   )

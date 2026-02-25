@@ -7,38 +7,50 @@ import dynamic from 'next/dynamic'
 
 const MetricsSection = dynamic(
   () => import('./MetricsSection').then((m) => m.MetricsSection),
-  { ssr: false, loading: () => <div className="mt-8 py-8 text-center text-gray-400 text-sm">Carregando métricas...</div> }
+  {
+    ssr: false,
+    loading: () => (
+      <div className="mt-8 py-8 text-center text-sm" style={{ color: '#8696a0' }}>
+        Carregando métricas...
+      </div>
+    ),
+  }
 )
 
 export function DashboardClient({ session }: { session: Session }) {
   const user = session.user as any
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      {/* Header */}
-      <header className="bg-white border-b border-gray-200 px-6 py-4 flex items-center justify-between">
+    <div className="min-h-screen flex flex-col" style={{ background: '#111b21' }}>
+      {/* Top bar — igual ao /atendimento */}
+      <header
+        className="flex-shrink-0 flex items-center justify-between px-4 py-2"
+        style={{ background: '#202c33', borderBottom: '1px solid #2a3942' }}
+      >
         <div className="flex items-center gap-2">
-          <span className="text-2xl">💬</span>
-          <span className="font-bold text-gray-800">MeuZapDesk</span>
-          <span className="text-sm text-gray-500 ml-2">— {user.businessName}</span>
+          <span className="text-lg">💬</span>
+          <span className="font-bold text-sm text-gray-100">MeuZapDesk</span>
+          <span className="text-xs ml-1" style={{ color: '#8696a0' }}>— {user.businessName}</span>
         </div>
         <div className="flex items-center gap-4">
           <Link
             href="/atendimento"
-            className="text-sm font-medium text-green-700 bg-green-50 hover:bg-green-100 px-3 py-1.5 rounded-lg transition"
+            className="text-xs text-green-400 hover:text-green-300 transition"
           >
             💬 Atendimento
           </Link>
           <Link
             href="/admin/users"
-            className="text-sm font-medium text-gray-600 hover:text-gray-900 px-3 py-1.5 rounded-lg hover:bg-gray-100 transition"
+            className="text-xs hover:text-white transition"
+            style={{ color: '#8696a0' }}
           >
             ⚙️ Admin
           </Link>
-          <span className="text-sm text-gray-600">{user.name}</span>
+          <span className="text-xs" style={{ color: '#8696a0' }}>{user.name}</span>
           <button
             onClick={() => signOut({ callbackUrl: '/login' })}
-            className="text-sm text-gray-500 hover:text-gray-800 transition"
+            className="text-xs hover:text-white transition"
+            style={{ color: '#8696a0' }}
           >
             Sair
           </button>
@@ -46,9 +58,9 @@ export function DashboardClient({ session }: { session: Session }) {
       </header>
 
       {/* Conteúdo */}
-      <main className="max-w-5xl mx-auto px-4 py-6">
-        <h1 className="text-xl font-bold text-gray-800 mb-1">Dashboard</h1>
-        <p className="text-sm text-gray-500 mb-6">Visão geral de hoje</p>
+      <main className="flex-1 max-w-5xl mx-auto w-full px-4 py-6">
+        <h1 className="text-lg font-bold mb-0.5" style={{ color: '#e9edef' }}>Dashboard</h1>
+        <p className="text-sm mb-6" style={{ color: '#8696a0' }}>Visão geral de hoje</p>
         <MetricsSection />
       </main>
     </div>
