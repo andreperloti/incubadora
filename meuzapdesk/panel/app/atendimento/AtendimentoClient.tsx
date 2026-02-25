@@ -171,33 +171,44 @@ function ChatPanel({
         className="flex-1 overflow-y-auto px-4 py-4 space-y-1"
         style={{ background: '#efeae2' }}
       >
-        {messages.map((msg) => (
-          <div
-            key={msg.id}
-            className={clsx('flex', msg.direction === 'out' ? 'justify-end' : 'justify-start')}
-          >
-            <div
-              className={clsx(
-                'max-w-xs lg:max-w-md xl:max-w-lg px-3 py-2 rounded-lg text-sm shadow-sm relative'
-              )}
-              style={
-                msg.direction === 'out'
-                  ? { background: '#d9fdd3', color: '#111b21', borderRadius: '8px 8px 0 8px' }
-                  : { background: '#ffffff', color: '#111b21', borderRadius: '8px 8px 8px 0' }
+        {messages.map((msg) => {
+            // Mensagens de saída são salvas como "Nome: texto" — exibe o prefixo em negrito
+            let prefix: string | null = null
+            let body = msg.content
+            if (msg.direction === 'out') {
+              const colonIdx = msg.content.indexOf(': ')
+              if (colonIdx !== -1) {
+                prefix = msg.content.slice(0, colonIdx)
+                body = msg.content.slice(colonIdx + 2)
               }
-            >
-              {msg.direction === 'out' && msg.senderUser && (
-                <p className="text-xs font-semibold text-green-700 mb-0.5">
-                  {msg.senderUser.name}
-                </p>
-              )}
-              <p className="whitespace-pre-wrap break-words leading-snug">{msg.content}</p>
-              <p className="text-right text-xs mt-1 ml-4" style={{ color: '#667781' }}>
-                {formatTime(msg.sentAt)}
-              </p>
-            </div>
-          </div>
-        ))}
+            }
+
+            return (
+              <div
+                key={msg.id}
+                className={clsx('flex', msg.direction === 'out' ? 'justify-end' : 'justify-start')}
+              >
+                <div
+                  className="max-w-xs lg:max-w-md xl:max-w-lg px-3 py-2 rounded-lg text-sm shadow-sm"
+                  style={
+                    msg.direction === 'out'
+                      ? { background: '#d9fdd3', color: '#111b21', borderRadius: '8px 8px 0 8px' }
+                      : { background: '#ffffff', color: '#111b21', borderRadius: '8px 8px 8px 0' }
+                  }
+                >
+                  {prefix && (
+                    <p className="text-xs font-bold mb-0.5" style={{ color: '#075e54' }}>
+                      {prefix}:
+                    </p>
+                  )}
+                  <p className="whitespace-pre-wrap break-words leading-snug">{body}</p>
+                  <p className="text-right text-xs mt-1 ml-4" style={{ color: '#667781' }}>
+                    {formatTime(msg.sentAt)}
+                  </p>
+                </div>
+              </div>
+            )
+          })}
         <div ref={bottomRef} />
       </div>
 
