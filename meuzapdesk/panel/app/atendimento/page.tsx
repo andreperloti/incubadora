@@ -32,8 +32,8 @@ export default async function AtendimentoPage() {
   const recent = await prisma.conversation.findMany({
     where: { businessId, status: 'resolved' },
     include,
-    orderBy: { resolvedAt: 'desc' },
-    take: 10,
+    orderBy: { lastCustomerMessageAt: 'desc' },
+    take: 20,
   })
 
   return (
