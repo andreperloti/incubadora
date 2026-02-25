@@ -32,7 +32,7 @@ export default async function AtendimentoPage() {
   const recent = await prisma.conversation.findMany({
     where: { businessId, status: 'resolved' },
     include,
-    orderBy: { updatedAt: 'desc' },
+    orderBy: { resolvedAt: 'desc' },
     take: 10,
   })
 
