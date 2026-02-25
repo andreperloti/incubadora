@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { verifyWebhookSecret, sendWhatsAppMessage, buildMenuMessage } from '@/lib/whatsapp'
+import { verifyWebhookSecret, sendWhatsAppMessage, buildMenuMessage, getWahaContactName } from '@/lib/whatsapp'
 import { prisma } from '@/lib/db'
 import { broadcastToBusinessClients } from '@/lib/sse'
 
@@ -30,7 +30,7 @@ export async function POST(req: NextRequest) {
 
   const rawPhone: string = payload?.from ?? ''
   const phone = rawPhone.replace('@c.us', '')
-  const customerName: string = payload?.notifyName || payload?.pushName || phone
+  const notifyName: string = payload?.notifyName || payload?.pushName || ''
   const text: string = payload?.body ?? ''
   const waMessageId: string = payload?.id ?? ''
 
@@ -47,6 +47,12 @@ export async function POST(req: NextRequest) {
     console.error(`Business não encontrado para sessão WAHA: ${sessionName}`)
     return NextResponse.json({ status: 'ok' })
   }
+
+  // Resolve nome do contato: usa notifyName do payload ou busca no WAHA
+  const customerName =
+    notifyName ||
+    (await getWahaContactName(sessionName, phone)) ||
+    phone
 
   // Verifica se já existe conversa aberta
   let conversation = await prisma.conversation.findFirst({

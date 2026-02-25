@@ -138,6 +138,7 @@ function ChatPanel({
   }
 
   const displayName = conversation.customerName || conversation.customerPhone
+  const isResolved = conversation.status === 'resolved'
 
   return (
     <div className="flex flex-col h-full">
@@ -146,11 +147,21 @@ function ChatPanel({
         className="flex-shrink-0 px-4 py-3 flex items-center gap-3 border-b"
         style={{ background: '#202c33', borderColor: '#2a3942' }}
       >
-        <div className="w-10 h-10 rounded-full bg-green-700 flex items-center justify-center text-white font-semibold flex-shrink-0">
+        <div
+          className="w-10 h-10 rounded-full flex items-center justify-center text-white font-semibold flex-shrink-0"
+          style={{ background: isResolved ? '#3d5060' : '#15803d' }}
+        >
           {displayName.charAt(0).toUpperCase()}
         </div>
         <div className="flex-1 min-w-0">
-          <p className="font-semibold text-gray-100 text-sm">{displayName}</p>
+          <div className="flex items-center gap-2">
+            <p className="font-semibold text-gray-100 text-sm">{displayName}</p>
+            {isResolved && (
+              <span className="text-xs px-1.5 py-0.5 rounded-full" style={{ background: '#2a3942', color: '#8696a0' }}>
+                Encerrada
+              </span>
+            )}
+          </div>
           <p className="text-xs" style={{ color: '#8696a0' }}>{conversation.customerPhone}</p>
         </div>
         {conversation.assignedUser && (
@@ -158,12 +169,14 @@ function ChatPanel({
             {conversation.assignedUser.name}
           </span>
         )}
-        <button
-          onClick={handleResolve}
-          className="flex-shrink-0 text-xs bg-green-600 hover:bg-green-700 text-white px-3 py-1.5 rounded-lg transition"
-        >
-          Encerrar ✓
-        </button>
+        {!isResolved && (
+          <button
+            onClick={handleResolve}
+            className="flex-shrink-0 text-xs bg-green-600 hover:bg-green-700 text-white px-3 py-1.5 rounded-lg transition"
+          >
+            Encerrar ✓
+          </button>
+        )}
       </div>
 
       {/* Messages */}
@@ -213,52 +226,61 @@ function ChatPanel({
       </div>
 
       {/* Input */}
-      <div
-        className="flex-shrink-0 px-3 py-3 flex items-end gap-2"
-        style={{ background: '#202c33' }}
-      >
+      {isResolved ? (
         <div
-          className="flex-1 rounded-lg px-4 py-2.5 flex items-end gap-2"
-          style={{ background: '#2a3942' }}
+          className="flex-shrink-0 px-4 py-3 text-center text-xs"
+          style={{ background: '#202c33', color: '#8696a0', borderTop: '1px solid #2a3942' }}
         >
-          <span className="text-xs flex-shrink-0 pb-0.5 whitespace-nowrap" style={{ color: '#8696a0' }}>
-            {userName}:
-          </span>
-          <textarea
-            ref={textareaRef}
-            value={text}
-            onChange={(e) => {
-              setText(e.target.value)
-              // Auto-resize
-              e.target.style.height = 'auto'
-              e.target.style.height = Math.min(e.target.scrollHeight, 120) + 'px'
-            }}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' && !e.shiftKey) {
-                e.preventDefault()
-                handleSend()
-              }
-            }}
-            placeholder="Digite uma mensagem"
-            rows={1}
-            className="flex-1 bg-transparent text-sm focus:outline-none resize-none leading-5"
-            style={{ color: '#e9edef', maxHeight: '120px' }}
-          />
+          Esta conversa foi encerrada
         </div>
-        <button
-          onClick={handleSend}
-          disabled={sending || !text.trim()}
-          className="flex-shrink-0 w-10 h-10 rounded-full bg-green-600 hover:bg-green-700 flex items-center justify-center transition disabled:opacity-40"
+      ) : (
+        <div
+          className="flex-shrink-0 px-3 py-3 flex items-end gap-2"
+          style={{ background: '#202c33' }}
         >
-          {sending ? (
-            <span className="text-white text-xs">...</span>
-          ) : (
-            <svg viewBox="0 0 24 24" className="w-5 h-5 fill-white ml-0.5">
-              <path d="M1.101 21.757L23.8 12.028 1.101 2.3l.011 7.912 13.623 1.816-13.623 1.817-.011 7.912z" />
-            </svg>
-          )}
-        </button>
-      </div>
+          <div
+            className="flex-1 rounded-lg px-4 py-2.5 flex items-end gap-2"
+            style={{ background: '#2a3942' }}
+          >
+            <span className="text-xs flex-shrink-0 pb-0.5 whitespace-nowrap" style={{ color: '#8696a0' }}>
+              {userName}:
+            </span>
+            <textarea
+              ref={textareaRef}
+              value={text}
+              onChange={(e) => {
+                setText(e.target.value)
+                // Auto-resize
+                e.target.style.height = 'auto'
+                e.target.style.height = Math.min(e.target.scrollHeight, 120) + 'px'
+              }}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && !e.shiftKey) {
+                  e.preventDefault()
+                  handleSend()
+                }
+              }}
+              placeholder="Digite uma mensagem"
+              rows={1}
+              className="flex-1 bg-transparent text-sm focus:outline-none resize-none leading-5"
+              style={{ color: '#e9edef', maxHeight: '120px' }}
+            />
+          </div>
+          <button
+            onClick={handleSend}
+            disabled={sending || !text.trim()}
+            className="flex-shrink-0 w-10 h-10 rounded-full bg-green-600 hover:bg-green-700 flex items-center justify-center transition disabled:opacity-40"
+          >
+            {sending ? (
+              <span className="text-white text-xs">...</span>
+            ) : (
+              <svg viewBox="0 0 24 24" className="w-5 h-5 fill-white ml-0.5">
+                <path d="M1.101 21.757L23.8 12.028 1.101 2.3l.011 7.912 13.623 1.816-13.623 1.817-.011 7.912z" />
+              </svg>
+            )}
+          </button>
+        </div>
+      )}
     </div>
   )
 }
@@ -289,15 +311,18 @@ function EmptyState() {
 
 export function AtendimentoClient({
   conversations: initial,
+  recentConversations: initialRecent,
   session,
 }: {
   conversations: ConvSummary[]
+  recentConversations: ConvSummary[]
   session: Session
 }) {
   const user = session.user as any
   const isOwner = user.role === 'OWNER'
 
   const [conversations, setConversations] = useState<ConvSummary[]>(initial)
+  const [recentConversations] = useState<ConvSummary[]>(initialRecent)
   const [search, setSearch] = useState('')
   const [selectedId, setSelectedId] = useState<number | null>(null)
   const [activeConv, setActiveConv] = useState<ConvDetail | null>(null)
@@ -454,71 +479,138 @@ export function AtendimentoClient({
 
           {/* Conversation list */}
           <div className="flex-1 overflow-y-auto">
-            {filtered.length === 0 ? (
+            {filtered.length === 0 && recentConversations.length === 0 ? (
               <div className="flex flex-col items-center justify-center h-full text-sm py-8" style={{ color: '#8696a0' }}>
                 <p className="text-2xl mb-2">✅</p>
                 <p>Sem conversas em aberto</p>
               </div>
             ) : (
-              filtered.map((conv) => {
-                const lastMsg = conv.messages[0]
-                const isSelected = conv.id === selectedId
-                const hasUrgent = conv.alerts.some((a) => a.alertLevel === 'urgent')
-                const hasWarn = conv.alerts.some((a) => a.alertLevel === 'warning')
-                const displayName = conv.customerName || conv.customerPhone
+              <>
+                {filtered.length === 0 && (
+                  <div className="flex flex-col items-center py-6 text-sm" style={{ color: '#8696a0' }}>
+                    <p className="text-2xl mb-1">✅</p>
+                    <p>Sem conversas em aberto</p>
+                  </div>
+                )}
 
-                return (
-                  <button
-                    key={conv.id}
-                    onClick={() => setSelectedId(conv.id)}
-                    className={clsx(
-                      'w-full text-left px-3 py-3 flex items-start gap-3 transition-colors border-b',
-                      isSelected ? 'bg-gray-700' : 'hover:bg-gray-800',
-                      hasUrgent
-                        ? 'border-l-4 border-l-red-500'
-                        : hasWarn
-                        ? 'border-l-4 border-l-yellow-400'
-                        : 'border-l-4 border-l-transparent'
-                    )}
-                    style={{ borderBottomColor: '#2a3942' }}
-                  >
-                    <div className="flex-shrink-0 w-11 h-11 rounded-full bg-teal-700 flex items-center justify-center text-white font-semibold text-base">
-                      {displayName.charAt(0).toUpperCase()}
-                    </div>
+                {filtered.map((conv) => {
+                  const lastMsg = conv.messages[0]
+                  const isSelected = conv.id === selectedId
+                  const hasUrgent = conv.alerts.some((a) => a.alertLevel === 'urgent')
+                  const hasWarn = conv.alerts.some((a) => a.alertLevel === 'warning')
+                  const displayName = conv.customerName || conv.customerPhone
 
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center justify-between gap-1">
-                        <p className="font-semibold text-sm text-gray-100 truncate">{displayName}</p>
-                        <span className="text-xs flex-shrink-0" style={{ color: '#8696a0' }}>
-                          {minutesAgo(conv.lastCustomerMessageAt)}
-                        </span>
-                      </div>
-                      <div className="flex items-center justify-between gap-1 mt-0.5">
-                        <p className="text-xs truncate" style={{ color: '#8696a0' }}>
-                          {lastMsg
-                            ? (lastMsg.direction === 'out' ? '↪ ' : '') + lastMsg.content
-                            : STATUS_LABEL[conv.status] || conv.status}
-                        </p>
-                        {hasUrgent && (
-                          <span className="flex-shrink-0 min-w-[18px] h-[18px] text-xs bg-red-500 text-white rounded-full flex items-center justify-center font-bold">
-                            !
-                          </span>
-                        )}
-                        {!hasUrgent && hasWarn && (
-                          <span className="flex-shrink-0 min-w-[18px] h-[18px] text-xs bg-yellow-500 text-white rounded-full flex items-center justify-center font-bold">
-                            !
-                          </span>
-                        )}
-                      </div>
-                      {conv.optionSelected && (
-                        <p className="text-xs truncate mt-0.5" style={{ color: '#667781' }}>
-                          {OPTION_LABEL[conv.optionSelected]}
-                        </p>
+                  return (
+                    <button
+                      key={conv.id}
+                      onClick={() => setSelectedId(conv.id)}
+                      className={clsx(
+                        'w-full text-left px-3 py-3 flex items-start gap-3 transition-colors border-b',
+                        isSelected ? 'bg-gray-700' : 'hover:bg-gray-800',
+                        hasUrgent
+                          ? 'border-l-4 border-l-red-500'
+                          : hasWarn
+                          ? 'border-l-4 border-l-yellow-400'
+                          : 'border-l-4 border-l-transparent'
                       )}
+                      style={{ borderBottomColor: '#2a3942' }}
+                    >
+                      <div className="flex-shrink-0 w-11 h-11 rounded-full bg-teal-700 flex items-center justify-center text-white font-semibold text-base">
+                        {displayName.charAt(0).toUpperCase()}
+                      </div>
+
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center justify-between gap-1">
+                          <p className="font-semibold text-sm text-gray-100 truncate">{displayName}</p>
+                          <span className="text-xs flex-shrink-0" style={{ color: '#8696a0' }}>
+                            {minutesAgo(conv.lastCustomerMessageAt)}
+                          </span>
+                        </div>
+                        <div className="flex items-center justify-between gap-1 mt-0.5">
+                          <p className="text-xs truncate" style={{ color: '#8696a0' }}>
+                            {lastMsg
+                              ? (lastMsg.direction === 'out' ? '↪ ' : '') + lastMsg.content
+                              : STATUS_LABEL[conv.status] || conv.status}
+                          </p>
+                          {hasUrgent && (
+                            <span className="flex-shrink-0 min-w-[18px] h-[18px] text-xs bg-red-500 text-white rounded-full flex items-center justify-center font-bold">
+                              !
+                            </span>
+                          )}
+                          {!hasUrgent && hasWarn && (
+                            <span className="flex-shrink-0 min-w-[18px] h-[18px] text-xs bg-yellow-500 text-white rounded-full flex items-center justify-center font-bold">
+                              !
+                            </span>
+                          )}
+                        </div>
+                        {conv.optionSelected && (
+                          <p className="text-xs truncate mt-0.5" style={{ color: '#667781' }}>
+                            {OPTION_LABEL[conv.optionSelected]}
+                          </p>
+                        )}
+                      </div>
+                    </button>
+                  )
+                })}
+
+                {/* Recentes separator */}
+                {recentConversations.length > 0 && (
+                  <>
+                    <div
+                      className="flex items-center gap-2 px-3 py-2 mt-1"
+                      style={{ borderTop: filtered.length > 0 ? '1px solid #2a3942' : undefined }}
+                    >
+                      <span className="text-xs font-semibold uppercase tracking-wide" style={{ color: '#3d5060' }}>
+                        Histórico recente
+                      </span>
                     </div>
-                  </button>
-                )
-              })
+
+                    {recentConversations.map((conv) => {
+                      const lastMsg = conv.messages[0]
+                      const isSelected = conv.id === selectedId
+                      const displayName = conv.customerName || conv.customerPhone
+
+                      return (
+                        <button
+                          key={conv.id}
+                          onClick={() => setSelectedId(conv.id)}
+                          className={clsx(
+                            'w-full text-left px-3 py-3 flex items-start gap-3 transition-colors border-b border-l-4 border-l-transparent',
+                            isSelected ? 'bg-gray-800' : 'hover:bg-gray-900'
+                          )}
+                          style={{ borderBottomColor: '#2a3942', opacity: 0.75 }}
+                        >
+                          <div
+                            className="flex-shrink-0 w-11 h-11 rounded-full flex items-center justify-center text-white font-semibold text-base"
+                            style={{ background: '#3d5060' }}
+                          >
+                            {displayName.charAt(0).toUpperCase()}
+                          </div>
+
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center justify-between gap-1">
+                              <p className="font-medium text-sm truncate" style={{ color: '#aebac1' }}>
+                                {displayName}
+                              </p>
+                              <span
+                                className="text-xs flex-shrink-0 px-1.5 py-0.5 rounded-full"
+                                style={{ background: '#2a3942', color: '#667781', fontSize: '10px' }}
+                              >
+                                Encerrada
+                              </span>
+                            </div>
+                            <p className="text-xs truncate mt-0.5" style={{ color: '#667781' }}>
+                              {lastMsg
+                                ? (lastMsg.direction === 'out' ? '↪ ' : '') + lastMsg.content
+                                : '—'}
+                            </p>
+                          </div>
+                        </button>
+                      )
+                    })}
+                  </>
+                )}
+              </>
             )}
           </div>
         </div>

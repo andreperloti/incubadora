@@ -174,3 +174,27 @@ export async function getWahaQrCode(session: string): Promise<string | null> {
 export function verifyWebhookSecret(secret: string): boolean {
   return secret === (process.env.WAHA_WEBHOOK_SECRET || '')
 }
+
+// Busca o nome do contato no WAHA (fallback quando notifyName não vem no payload)
+// Retorna null se não encontrar ou der erro
+export async function getWahaContactName(
+  session: string,
+  phone: string
+): Promise<string | null> {
+  try {
+    const contactId = toChatId(phone)
+    const res = await fetch(
+      `${WAHA_API_URL}/api/contacts?contactId=${encodeURIComponent(contactId)}&session=${encodeURIComponent(session)}`,
+      { headers: wahaHeaders() }
+    )
+    if (!res.ok) return null
+    const data = await res.json()
+    // WAHA retorna { id, name, pushname, shortName, ... }
+    const name = data?.name || data?.pushname || data?.shortName || null
+    // Evita retornar o próprio número como nome
+    if (name && name !== phone && name !== contactId) return name
+    return null
+  } catch {
+    return null
+  }
+}
