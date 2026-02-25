@@ -1,48 +1,50 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { verifyWebhookToken } from '@/lib/whatsapp'
+import { verifyWebhookSecret, sendWhatsAppMessage, buildMenuMessage } from '@/lib/whatsapp'
 import { prisma } from '@/lib/db'
-import { sendWhatsAppMessage, buildMenuMessage } from '@/lib/whatsapp'
 import { broadcastToBusinessClients } from '@/lib/sse'
 
-// Verificação do webhook pelo Meta
-export async function GET(req: NextRequest) {
-  const { searchParams } = new URL(req.url)
-  const mode = searchParams.get('hub.mode')
-  const token = searchParams.get('hub.verify_token')
-  const challenge = searchParams.get('hub.challenge')
+// Payload do WAHA ao receber uma mensagem:
+// { event: "message", session: "nome-da-sessao", payload: { id, from, body, notifyName, fromMe, ... } }
 
-  if (mode === 'subscribe' && verifyWebhookToken(token || '')) {
-    return new Response(challenge, { status: 200 })
+export async function POST(req: NextRequest) {
+  // Valida o secret na query string
+  const secret = req.nextUrl.searchParams.get('secret') ?? ''
+  if (!verifyWebhookSecret(secret)) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
-  return new Response('Forbidden', { status: 403 })
-}
-
-// Recebimento de mensagens
-export async function POST(req: NextRequest) {
   const body = await req.json()
 
-  const entry = body?.entry?.[0]?.changes?.[0]?.value
-  const message = entry?.messages?.[0]
-
-  // Ignora notificações de status (delivered, read, etc.)
-  if (!message) {
-    return NextResponse.json({ status: 'ok' })
+  // Ignora eventos que não sejam mensagens recebidas
+  if (body.event !== 'message') {
+    return NextResponse.json({ status: 'ignored' })
   }
 
-  const phone = message.from
-  const customerName = entry.contacts?.[0]?.profile?.name || phone
-  const text = message.text?.body || ''
-  const waMessageId = message.id
-  const phoneNumberId = entry.metadata?.phone_number_id
+  const sessionName: string = body.session
+  const payload = body.payload
 
-  // Encontra o negócio pelo phoneNumberId
+  // Ignora mensagens enviadas por nós mesmos ou de grupos
+  if (payload?.fromMe || payload?.from?.endsWith('@g.us')) {
+    return NextResponse.json({ status: 'ignored' })
+  }
+
+  const rawPhone: string = payload?.from ?? ''
+  const phone = rawPhone.replace('@c.us', '')
+  const customerName: string = payload?.notifyName || payload?.pushName || phone
+  const text: string = payload?.body ?? ''
+  const waMessageId: string = payload?.id ?? ''
+
+  if (!phone || !text) {
+    return NextResponse.json({ status: 'ignored' })
+  }
+
+  // Encontra o negócio pela sessão WAHA
   const business = await prisma.business.findFirst({
-    where: { waPhoneNumberId: phoneNumberId },
+    where: { wahaSession: sessionName },
   })
 
   if (!business) {
-    console.error(`Business não encontrado para phoneNumberId: ${phoneNumberId}`)
+    console.error(`Business não encontrado para sessão WAHA: ${sessionName}`)
     return NextResponse.json({ status: 'ok' })
   }
 
@@ -69,10 +71,9 @@ export async function POST(req: NextRequest) {
     })
 
     await sendWhatsAppMessage({
+      session: sessionName,
       to: phone,
       message: buildMenuMessage(business.name),
-      phoneNumberId: business.waPhoneNumberId,
-      accessToken: business.waApiToken,
     })
   } else {
     // Conversa existente — detecta seleção de opção ou mensagem normal

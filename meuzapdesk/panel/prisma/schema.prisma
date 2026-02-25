@@ -11,8 +11,7 @@ model Business {
   id              Int            @id @default(autoincrement())
   name            String
   whatsappNumber  String         @map("whatsapp_number")
-  waApiToken      String         @map("wa_api_token")
-  waPhoneNumberId String         @map("wa_phone_number_id")
+  wahaSession     String         @default("default") @map("waha_session")
   settingsJson    Json?          @map("settings_json")
   createdAt       DateTime       @default(now()) @map("created_at")
   users           User[]

@@ -30,12 +30,11 @@ export async function POST(req: NextRequest) {
 
   const signedMessage = buildSignedMessage(user.name, message.trim())
 
-  // Envia para o WhatsApp
+  // Envia para o WhatsApp via WAHA
   const waResult = await sendWhatsAppMessage({
+    session: conversation.business.wahaSession,
     to: conversation.customerPhone,
     message: signedMessage,
-    accessToken: conversation.business.waApiToken,
-    phoneNumberId: conversation.business.waPhoneNumberId,
   })
 
   if (!waResult.success) {

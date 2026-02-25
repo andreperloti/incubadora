@@ -13,8 +13,7 @@ async function main() {
     create: {
       name: 'Oficina Teste',
       whatsappNumber: '5511999999999',
-      waApiToken: 'dev-token-placeholder',
-      waPhoneNumberId: 'dev-phone-id-placeholder',
+      wahaSession: 'default',
     },
   })
 

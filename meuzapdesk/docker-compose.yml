@@ -1,31 +1,13 @@
 services:
-  n8n:
-    image: n8nio/n8n:latest
+  waha:
+    image: devlikeapro/waha:latest
     restart: unless-stopped
     environment:
-      - N8N_BASIC_AUTH_ACTIVE=true
-      - N8N_BASIC_AUTH_USER=${N8N_USER:-admin}
-      - N8N_BASIC_AUTH_PASSWORD=${N8N_PASSWORD}
-      - DB_TYPE=postgresdb
-      - DB_POSTGRESDB_HOST=postgres
-      - DB_POSTGRESDB_PORT=5432
-      - DB_POSTGRESDB_DATABASE=${POSTGRES_DB:-meuzapdesk}
-      - DB_POSTGRESDB_USER=${POSTGRES_USER:-meuzapdesk}
-      - DB_POSTGRESDB_PASSWORD=${POSTGRES_PASSWORD}
-      - N8N_HOST=${N8N_HOST:-localhost}
-      - N8N_PORT=5678
-      - N8N_PROTOCOL=${N8N_PROTOCOL:-http}
-      - WEBHOOK_URL=${N8N_WEBHOOK_URL}
-      - EXECUTIONS_PROCESS=main
-      - GENERIC_TIMEZONE=America/Sao_Paulo
+      - WAHA_API_KEY=${WAHA_API_KEY}
+      - WAHA_LOG_LEVEL=info
+      - TZ=America/Sao_Paulo
     volumes:
-      - n8n_data:/home/node/.n8n
-      - ./n8n-workflows:/home/node/workflows
-    ports:
-      - "5678:5678"
-    depends_on:
-      postgres:
-        condition: service_healthy
+      - waha_data:/app/sessions
     networks:
       - meuzapdesk_net
 
@@ -38,17 +20,16 @@ services:
       - DATABASE_URL=postgresql://${POSTGRES_USER:-meuzapdesk}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-meuzapdesk}
       - NEXTAUTH_SECRET=${NEXTAUTH_SECRET}
       - NEXTAUTH_URL=${NEXTAUTH_URL:-http://localhost:3000}
-      - N8N_WEBHOOK_URL=http://n8n:5678
       - REDIS_URL=redis://redis:6379
-      - WA_PHONE_NUMBER_ID=${WA_PHONE_NUMBER_ID}
-      - WA_ACCESS_TOKEN=${WA_ACCESS_TOKEN}
-      - WA_VERIFY_TOKEN=${WA_VERIFY_TOKEN}
+      - WAHA_API_URL=http://waha:3000
+      - WAHA_API_KEY=${WAHA_API_KEY}
+      - WAHA_WEBHOOK_SECRET=${WAHA_WEBHOOK_SECRET}
     ports:
       - "3000:3000"
     depends_on:
       - postgres
       - redis
-      - n8n
+      - waha
     networks:
       - meuzapdesk_net
 
@@ -88,12 +69,12 @@ services:
       - ./certs:/etc/nginx/certs:ro
     depends_on:
       - nextjs
-      - n8n
+      - waha
     networks:
       - meuzapdesk_net
 
 volumes:
-  n8n_data:
+  waha_data:
   pg_data:
   redis_data:
 

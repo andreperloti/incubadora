@@ -30,6 +30,19 @@ services:
     volumes:
       - redis_dev_data:/data
 
+  waha:
+    image: devlikeapro/waha:latest
+    restart: unless-stopped
+    ports:
+      - "3002:3000"
+    environment:
+      - WAHA_API_KEY=${WAHA_API_KEY:-dev-waha-key}
+      - WAHA_LOG_LEVEL=info
+      - TZ=America/Sao_Paulo
+    volumes:
+      - waha_dev_data:/app/sessions
+
 volumes:
   pg_dev_data:
   redis_dev_data:
+  waha_dev_data:

@@ -41,6 +41,12 @@ export default async function AdminLayout({ children }: { children: React.ReactN
             >
               👥 Usuários
             </Link>
+            <Link
+              href="/admin/whatsapp"
+              className="flex items-center gap-2 px-3 py-2 text-sm font-medium text-gray-700 rounded-lg hover:bg-gray-100 transition"
+            >
+              📱 WhatsApp
+            </Link>
           </nav>
         </aside>
 
