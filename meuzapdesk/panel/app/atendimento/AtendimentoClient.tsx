@@ -89,15 +89,21 @@ function ChatPanel({
     bottomRef.current?.scrollIntoView({ behavior: 'instant' })
   }, [messages])
 
+  // Merge messages from parent (SSE updates) without duplicating by id
+  useEffect(() => {
+    setMessages((prev) => {
+      const existingIds = new Set(prev.map((m) => m.id))
+      const toAdd = conversation.messages.filter((m) => !existingIds.has(m.id))
+      return toAdd.length > 0 ? [...prev, ...toAdd] : prev
+    })
+  }, [conversation.messages])
+
+  // When conversation changes, reset entirely
   useEffect(() => {
     setMessages(conversation.messages)
     setText('')
-  }, [conversation.id, conversation.messages])
-
-  // Expose callback for parent to push new messages in
-  useEffect(() => {
-    // Nothing needed here; parent passes new messages via prop update
-  }, [])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [conversation.id])
 
   async function handleSend() {
     if (!text.trim() || sending) return
@@ -111,8 +117,15 @@ function ChatPanel({
       body: JSON.stringify({ conversationId: conversation.id, message: body }),
     })
 
-    if (!res.ok) {
-      // Restore text on error
+    if (res.ok) {
+      // Adiciona otimisticamente sem esperar o SSE
+      const data = await res.json()
+      if (data.message) {
+        setMessages((prev) =>
+          prev.some((m) => m.id === data.message.id) ? prev : [...prev, data.message]
+        )
+      }
+    } else {
       setText(body)
     }
     setSending(false)
