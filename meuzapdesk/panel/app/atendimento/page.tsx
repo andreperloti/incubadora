@@ -18,14 +18,14 @@ export default async function AtendimentoPage() {
     alerts: true,
   }
 
-  // Conversas abertas (fila ativa)
+  // Conversas abertas — ordena por tempo de espera por resposta humana (mais antiga primeiro)
   const active = await prisma.conversation.findMany({
     where: {
       businessId,
       status: { in: ['in_queue', 'in_progress', 'waiting_menu'] },
     },
     include,
-    orderBy: { lastCustomerMessageAt: 'asc' },
+    orderBy: { customerWaitingSince: 'asc' },
   })
 
   // Últimas 10 conversas resolvidas (histórico recente)

@@ -79,7 +79,7 @@ export function buildOptionAutoReply(option: number): string {
 }
 
 export function buildSignedMessage(senderName: string, message: string): string {
-  return `${senderName}: ${message}`
+  return `*${senderName}:*\n${message}`
 }
 
 // ─── Gerenciamento de Sessões WAHA ──────────────────────────────────────────

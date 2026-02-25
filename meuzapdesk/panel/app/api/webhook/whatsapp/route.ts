@@ -4,7 +4,7 @@ import { prisma } from '@/lib/db'
 import { broadcastToBusinessClients } from '@/lib/sse'
 
 // Payload do WAHA ao receber uma mensagem:
-// { event: "message", session: "nome-da-sessao", payload: { id, from, body, notifyName, fromMe, ... } }
+// { event: "message", session: "nome-da-sessao", payload: { id, from, body, timestamp, notifyName, fromMe, ... } }
 
 export async function POST(req: NextRequest) {
   // Valida o secret na query string
@@ -34,11 +34,14 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ status: 'ignored' })
   }
 
-  const rawPhone: string = rawFrom
-  const phone = rawPhone.replace('@c.us', '')
+  const phone = rawFrom.replace('@c.us', '')
   const notifyName: string = payload?.notifyName || payload?.pushName || ''
   const text: string = payload?.body ?? ''
   const waMessageId: string = payload?.id ?? ''
+  // Timestamp real da mensagem no WhatsApp (Unix segundos → Date)
+  const waTimestamp: Date = payload?.timestamp
+    ? new Date(payload.timestamp * 1000)
+    : new Date()
 
   if (!phone || !text) {
     return NextResponse.json({ status: 'ignored' })
@@ -61,7 +64,7 @@ export async function POST(req: NextRequest) {
     phone
 
   // Verifica se já existe conversa aberta
-  let conversation = await prisma.conversation.findFirst({
+  const existing = await prisma.conversation.findFirst({
     where: {
       businessId: business.id,
       customerPhone: phone,
@@ -70,18 +73,69 @@ export async function POST(req: NextRequest) {
     orderBy: { createdAt: 'desc' },
   })
 
-  if (!conversation) {
-    // Nova conversa — cria e envia menu
+  // Flags para decidir o que enviar após salvar a mensagem do cliente
+  const isNew = !existing
+  let optionSelectedForReply: number | null = null
+
+  let conversation: typeof existing & {} = existing as any
+
+  if (isNew) {
     conversation = await prisma.conversation.create({
       data: {
         businessId: business.id,
         customerPhone: phone,
         customerName,
         status: 'waiting_menu',
-        lastCustomerMessageAt: new Date(),
+        lastCustomerMessageAt: waTimestamp,
+        // Marca desde quando o cliente está esperando resposta humana
+        customerWaitingSince: waTimestamp,
       },
     })
+  } else {
+    const wasWaitingMenu = existing!.status === 'waiting_menu'
+    const isOptionSelection = wasWaitingMenu && ['1', '2', '3', '4'].includes(text.trim())
+    const optionSelected = isOptionSelection ? parseInt(text.trim()) : existing!.optionSelected
 
+    if (isOptionSelection) {
+      optionSelectedForReply = optionSelected
+    }
+
+    await prisma.conversation.update({
+      where: { id: existing!.id },
+      data: {
+        lastCustomerMessageAt: waTimestamp,
+        status: wasWaitingMenu ? 'in_queue' : existing!.status,
+        optionSelected,
+        customerName,
+        // Preserva a data original se já estava esperando; inicia nova espera se humano já respondeu
+        customerWaitingSince: (existing as any).customerWaitingSince ?? waTimestamp,
+      },
+    })
+    conversation = { ...existing!, optionSelected } as any
+  }
+
+  // ── 1. Salva a mensagem recebida PRIMEIRO com o timestamp real do WhatsApp ──
+  const savedMessage = await prisma.message.create({
+    data: {
+      conversationId: conversation.id,
+      direction: 'in',
+      content: text,
+      waMessageId,
+      sentAt: waTimestamp,
+    },
+    include: { senderUser: { select: { id: true, name: true } } },
+  })
+
+  broadcastToBusinessClients(String(business.id), {
+    type: 'new_message',
+    conversationId: conversation.id,
+    message: savedMessage,
+  })
+
+  // ── 2. Envia respostas automáticas DEPOIS (sentAt = now() > waTimestamp) ──
+
+  if (isNew) {
+    // Nova conversa — envia menu de boas-vindas
     const menuText = buildMenuMessage(business.name)
     const menuResult = await sendWhatsAppMessage({
       session: sessionName,
@@ -89,7 +143,6 @@ export async function POST(req: NextRequest) {
       message: menuText,
     })
 
-    // Salva a mensagem de boas-vindas no banco para aparecer no chat
     const menuMsg = await prisma.message.create({
       data: {
         conversationId: conversation.id,
@@ -105,72 +158,33 @@ export async function POST(req: NextRequest) {
       conversationId: conversation.id,
       message: menuMsg,
     })
-  } else {
-    // Conversa existente — detecta seleção de opção ou mensagem normal
-    let optionSelected = conversation.optionSelected
-    const isOptionSelection =
-      conversation.status === 'waiting_menu' && ['1', '2', '3', '4'].includes(text.trim())
+  } else if (optionSelectedForReply !== null) {
+    // Opção selecionada — envia auto-resposta com o setor
+    const autoReplyText = buildOptionAutoReply(optionSelectedForReply)
+    if (autoReplyText) {
+      const autoResult = await sendWhatsAppMessage({
+        session: sessionName,
+        to: phone,
+        message: autoReplyText,
+      })
 
-    if (isOptionSelection) {
-      optionSelected = parseInt(text.trim())
-    }
-
-    await prisma.conversation.update({
-      where: { id: conversation.id },
-      data: {
-        lastCustomerMessageAt: new Date(),
-        status: conversation.status === 'waiting_menu' ? 'in_queue' : conversation.status,
-        optionSelected,
-        customerName,
-      },
-    })
-
-    // Envia e salva auto-resposta quando a pessoa seleciona uma opção
-    if (isOptionSelection && optionSelected) {
-      const autoReplyText = buildOptionAutoReply(optionSelected)
-      if (autoReplyText) {
-        const autoResult = await sendWhatsAppMessage({
-          session: sessionName,
-          to: phone,
-          message: autoReplyText,
-        })
-
-        const autoMsg = await prisma.message.create({
-          data: {
-            conversationId: conversation.id,
-            direction: 'out',
-            content: autoReplyText,
-            waMessageId: autoResult.messageId ?? null,
-          },
-          include: { senderUser: { select: { id: true, name: true } } },
-        })
-
-        broadcastToBusinessClients(String(business.id), {
-          type: 'new_message',
+      const autoMsg = await prisma.message.create({
+        data: {
           conversationId: conversation.id,
-          message: autoMsg,
-        })
-      }
+          direction: 'out',
+          content: autoReplyText,
+          waMessageId: autoResult.messageId ?? null,
+        },
+        include: { senderUser: { select: { id: true, name: true } } },
+      })
+
+      broadcastToBusinessClients(String(business.id), {
+        type: 'new_message',
+        conversationId: conversation.id,
+        message: autoMsg,
+      })
     }
   }
-
-  // Salva a mensagem recebida
-  const savedMessage = await prisma.message.create({
-    data: {
-      conversationId: conversation.id,
-      direction: 'in',
-      content: text,
-      waMessageId,
-    },
-    include: { senderUser: { select: { id: true, name: true } } },
-  })
-
-  // Notifica painel via SSE
-  broadcastToBusinessClients(String(business.id), {
-    type: 'new_message',
-    conversationId: conversation.id,
-    message: savedMessage,
-  })
 
   return NextResponse.json({ status: 'ok' })
 }

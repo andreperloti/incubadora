@@ -55,12 +55,13 @@ export async function POST(req: NextRequest) {
     },
   })
 
-  // Atualiza status da conversa
+  // Atualiza status e zera o timer de espera (humano respondeu)
   await prisma.conversation.update({
     where: { id: conversationId },
     data: {
       status: 'in_progress',
       assignedUserId: userId,
+      customerWaitingSince: null,
     },
   })
 

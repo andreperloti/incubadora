@@ -52,6 +52,7 @@ model Conversation {
   assignedUserId        Int?             @map("assigned_user_id")
   createdAt             DateTime         @default(now()) @map("created_at")
   lastCustomerMessageAt DateTime?        @map("last_customer_message_at")
+  customerWaitingSince  DateTime?        @map("customer_waiting_since")
   resolvedAt            DateTime?        @map("resolved_at")
   business              Business         @relation(fields: [businessId], references: [id])
   assignedUser          User?            @relation("AssignedConversations", fields: [assignedUserId], references: [id])
