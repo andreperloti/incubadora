@@ -9,7 +9,14 @@ export default withAuth(
     // Rotas /admin/* exigem role OWNER
     if (pathname.startsWith('/admin')) {
       if (!token || token.role !== 'OWNER') {
-        return NextResponse.redirect(new URL('/dashboard', req.url))
+        return NextResponse.redirect(new URL('/atendimento', req.url))
+      }
+    }
+
+    // /dashboard exige role OWNER — redireciona MECHANICs para /atendimento
+    if (pathname.startsWith('/dashboard')) {
+      if (token?.role !== 'OWNER') {
+        return NextResponse.redirect(new URL('/atendimento', req.url))
       }
     }
 
@@ -25,5 +32,5 @@ export default withAuth(
 )
 
 export const config = {
-  matcher: ['/dashboard/:path*', '/admin/:path*', '/chat/:path*'],
+  matcher: ['/dashboard/:path*', '/admin/:path*', '/chat/:path*', '/atendimento/:path*'],
 }

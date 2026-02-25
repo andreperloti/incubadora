@@ -77,7 +77,7 @@ export function ChatClient({
 
   async function handleResolve() {
     await fetch(`/api/conversations/${initial.id}/resolve`, { method: 'POST' })
-    router.push('/dashboard')
+    router.push('/atendimento')
   }
 
   return (
@@ -85,7 +85,7 @@ export function ChatClient({
       {/* Header */}
       <header className="bg-white border-b border-gray-200 px-4 py-3 flex items-center gap-3">
         <button
-          onClick={() => router.push('/dashboard')}
+          onClick={() => router.push('/atendimento')}
           className="text-gray-500 hover:text-gray-800 transition"
         >
           ← Voltar

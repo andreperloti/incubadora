@@ -21,7 +21,7 @@ export function broadcastToBusinessClients(businessId: string, data: object) {
   const message = `data: ${JSON.stringify(data)}\n\n`
   const encoder = new TextEncoder()
 
-  for (const client of clients.values()) {
+  for (const client of Array.from(clients.values())) {
     if (client.businessId === businessId) {
       try {
         client.controller.enqueue(encoder.encode(message))
@@ -36,7 +36,7 @@ export function broadcastToAll(data: object) {
   const message = `data: ${JSON.stringify(data)}\n\n`
   const encoder = new TextEncoder()
 
-  for (const client of clients.values()) {
+  for (const client of Array.from(clients.values())) {
     try {
       client.controller.enqueue(encoder.encode(message))
     } catch {
