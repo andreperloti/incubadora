@@ -32,6 +32,7 @@ services:
 
   waha:
     image: devlikeapro/waha:latest
+    platform: linux/amd64
     restart: unless-stopped
     ports:
       - "3002:3000"
