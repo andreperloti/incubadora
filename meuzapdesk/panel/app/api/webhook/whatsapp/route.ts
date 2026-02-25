@@ -23,12 +23,18 @@ export async function POST(req: NextRequest) {
   const sessionName: string = body.session
   const payload = body.payload
 
-  // Ignora mensagens enviadas por nós mesmos ou de grupos
-  if (payload?.fromMe || payload?.from?.endsWith('@g.us')) {
+  // Ignora mensagens enviadas por nós mesmos, de grupos, newsletters ou broadcasts
+  const rawFrom: string = payload?.from ?? ''
+  if (
+    payload?.fromMe ||
+    rawFrom.endsWith('@g.us') ||
+    rawFrom.endsWith('@newsletter') ||
+    rawFrom.endsWith('@broadcast')
+  ) {
     return NextResponse.json({ status: 'ignored' })
   }
 
-  const rawPhone: string = payload?.from ?? ''
+  const rawPhone: string = rawFrom
   const phone = rawPhone.replace('@c.us', '')
   const notifyName: string = payload?.notifyName || payload?.pushName || ''
   const text: string = payload?.body ?? ''
