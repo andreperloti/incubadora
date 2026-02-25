@@ -65,6 +65,19 @@ export function buildMenuMessage(businessName: string): string {
   return `Olá! Bem-vindo à ${businessName}. Como podemos ajudar?\n\n1️⃣ Orçamento — Já sei as peças e serviço\n2️⃣ Orçamento — Preciso de diagnóstico\n3️⃣ Status do meu serviço\n4️⃣ Fornecedores e outros assuntos`
 }
 
+const OPTION_SECTOR: Record<number, string> = {
+  1: 'Orçamento — Já sei as peças e serviço',
+  2: 'Orçamento — Preciso de diagnóstico',
+  3: 'Status do meu serviço',
+  4: 'Fornecedores e outros assuntos',
+}
+
+export function buildOptionAutoReply(option: number): string {
+  const sector = OPTION_SECTOR[option]
+  if (!sector) return ''
+  return `Você será direcionado para o setor de: ${sector}. Em breve um atendente irá lhe atender! 😊`
+}
+
 export function buildSignedMessage(senderName: string, message: string): string {
   return `${senderName}: ${message}`
 }
