@@ -46,9 +46,10 @@ export async function POST(req: NextRequest) {
   const { action } = await req.json()
   const sessionName = business.wahaSession
 
-  // URL do webhook: painel_url + /api/webhook/whatsapp?secret=...
+  // URL do webhook: usa WAHA_WEBHOOK_BASE_URL se definido (necessário quando WAHA roda
+  // em Docker e precisa de host.docker.internal para alcançar o Next.js no host)
   const webhookSecret = process.env.WAHA_WEBHOOK_SECRET || ''
-  const panelUrl = process.env.NEXTAUTH_URL || 'http://localhost:3000'
+  const panelUrl = process.env.WAHA_WEBHOOK_BASE_URL || process.env.NEXTAUTH_URL || 'http://localhost:3000'
   const webhookUrl = `${panelUrl}/api/webhook/whatsapp?secret=${webhookSecret}`
 
   if (action === 'start') {

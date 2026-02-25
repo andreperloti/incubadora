@@ -96,23 +96,31 @@ export async function createWahaSession(
   session: string,
   webhookUrl: string
 ): Promise<boolean> {
+  const webhookConfig = {
+    webhooks: [{ url: webhookUrl, events: ['message'] }],
+  }
+
   try {
-    const res = await fetch(`${WAHA_API_URL}/api/sessions`, {
+    // Tenta criar a sessão
+    const createRes = await fetch(`${WAHA_API_URL}/api/sessions`, {
       method: 'POST',
       headers: wahaHeaders(),
-      body: JSON.stringify({
-        name: session,
-        config: {
-          webhooks: [
-            {
-              url: webhookUrl,
-              events: ['message'],
-            },
-          ],
-        },
-      }),
+      body: JSON.stringify({ name: session, config: webhookConfig }),
     })
-    return res.ok || res.status === 422 // 422 = sessão já existe
+
+    if (createRes.ok) return true
+
+    // Se já existe (422), atualiza o webhook via PUT (não precisa re-escanear QR)
+    if (createRes.status === 422) {
+      const updateRes = await fetch(`${WAHA_API_URL}/api/sessions/${session}`, {
+        method: 'PUT',
+        headers: wahaHeaders(),
+        body: JSON.stringify({ config: webhookConfig }),
+      })
+      return updateRes.ok
+    }
+
+    return false
   } catch {
     return false
   }
