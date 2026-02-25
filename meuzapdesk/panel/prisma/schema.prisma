@@ -28,6 +28,7 @@ model User {
   email        String         @unique
   passwordHash String         @map("password_hash")
   role         UserRole       @default(MECHANIC)
+  active       Boolean        @default(true)
   createdAt    DateTime       @default(now()) @map("created_at")
   business     Business       @relation(fields: [businessId], references: [id])
   conversations Conversation[] @relation("AssignedConversations")

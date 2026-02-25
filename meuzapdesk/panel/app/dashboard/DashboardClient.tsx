@@ -2,9 +2,16 @@
 
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
+import Link from 'next/link'
 import { signOut } from 'next-auth/react'
 import type { Session } from 'next-auth'
 import clsx from 'clsx'
+import dynamic from 'next/dynamic'
+
+const MetricsSection = dynamic(
+  () => import('./MetricsSection').then((m) => m.MetricsSection),
+  { ssr: false, loading: () => <div className="mt-8 py-8 text-center text-gray-400 text-sm">Carregando métricas...</div> }
+)
 
 const STATUS_LABEL: Record<string, string> = {
   waiting_menu: 'Aguardando menu',
@@ -51,6 +58,7 @@ export function DashboardClient({
 }) {
   const router = useRouter()
   const [conversations, setConversations] = useState(initial)
+  const isOwner = (session.user as any).role === 'OWNER'
 
   useEffect(() => {
     const es = new EventSource('/api/sse')
@@ -82,6 +90,14 @@ export function DashboardClient({
           </span>
         </div>
         <div className="flex items-center gap-4">
+          {isOwner && (
+            <Link
+              href="/admin/users"
+              className="text-sm font-medium text-green-700 bg-green-50 hover:bg-green-100 px-3 py-1.5 rounded-lg transition"
+            >
+              ⚙️ Admin
+            </Link>
+          )}
           <span className="text-sm text-gray-600">Olá, {userName}</span>
           <button
             onClick={() => signOut({ callbackUrl: '/login' })}
@@ -92,7 +108,7 @@ export function DashboardClient({
         </div>
       </header>
 
-      {/* Fila */}
+      {/* Conteúdo */}
       <main className="max-w-4xl mx-auto px-4 py-6">
         <div className="flex items-center justify-between mb-4">
           <h2 className="text-lg font-semibold text-gray-800">
@@ -172,6 +188,9 @@ export function DashboardClient({
             })}
           </div>
         )}
+
+        {/* Métricas — visíveis apenas para OWNER */}
+        {isOwner && <MetricsSection />}
       </main>
     </div>
   )
