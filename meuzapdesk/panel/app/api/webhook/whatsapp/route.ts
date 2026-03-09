@@ -1,10 +1,22 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { verifyWebhookSecret, sendWhatsAppMessage, buildMenuMessage, buildOptionAutoReply, getWahaContactName } from '@/lib/whatsapp'
+import { verifyWebhookSecret, getWahaContactName } from '@/lib/whatsapp'
 import { prisma } from '@/lib/db'
 import { broadcastToBusinessClients } from '@/lib/sse'
 
 // Payload do WAHA ao receber uma mensagem:
 // { event: "message", session: "nome-da-sessao", payload: { id, from, body, timestamp, notifyName, fromMe, ... } }
+
+const N8N_WEBHOOK_URL = process.env.N8N_WEBHOOK_URL || ''
+
+// Dispara o n8n de forma assíncrona (fire-and-forget) para processar respostas automáticas
+function notifyN8n(payload: object) {
+  if (!N8N_WEBHOOK_URL) return
+  fetch(N8N_WEBHOOK_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  }).catch((err) => console.error('[n8n] Falha ao notificar:', err))
+}
 
 export async function POST(req: NextRequest) {
   // Valida o secret na query string
@@ -73,7 +85,6 @@ export async function POST(req: NextRequest) {
     orderBy: { createdAt: 'desc' },
   })
 
-  // Flags para decidir o que enviar após salvar a mensagem do cliente
   const isNew = !existing
   let optionSelectedForReply: number | null = null
 
@@ -87,7 +98,6 @@ export async function POST(req: NextRequest) {
         customerName,
         status: 'waiting_menu',
         lastCustomerMessageAt: waTimestamp,
-        // Marca desde quando o cliente está esperando resposta humana
         customerWaitingSince: waTimestamp,
       },
     })
@@ -107,14 +117,13 @@ export async function POST(req: NextRequest) {
         status: wasWaitingMenu ? 'in_queue' : existing!.status,
         optionSelected,
         customerName,
-        // Preserva a data original se já estava esperando; inicia nova espera se humano já respondeu
         customerWaitingSince: (existing as any).customerWaitingSince ?? waTimestamp,
       },
     })
     conversation = { ...existing!, optionSelected } as any
   }
 
-  // ── 1. Salva a mensagem recebida PRIMEIRO com o timestamp real do WhatsApp ──
+  // ── 1. Salva a mensagem recebida com o timestamp real do WhatsApp ──
   const savedMessage = await prisma.message.create({
     data: {
       conversationId: conversation.id,
@@ -132,59 +141,18 @@ export async function POST(req: NextRequest) {
     message: savedMessage,
   })
 
-  // ── 2. Envia respostas automáticas DEPOIS (sentAt = now() > waTimestamp) ──
-
-  if (isNew) {
-    // Nova conversa — envia menu de boas-vindas
-    const menuText = buildMenuMessage(business.name)
-    const menuResult = await sendWhatsAppMessage({
-      session: sessionName,
-      to: phone,
-      message: menuText,
-    })
-
-    const menuMsg = await prisma.message.create({
-      data: {
-        conversationId: conversation.id,
-        direction: 'out',
-        content: menuText,
-        waMessageId: menuResult.messageId ?? null,
-      },
-      include: { senderUser: { select: { id: true, name: true } } },
-    })
-
-    broadcastToBusinessClients(String(business.id), {
-      type: 'new_message',
-      conversationId: conversation.id,
-      message: menuMsg,
-    })
-  } else if (optionSelectedForReply !== null) {
-    // Opção selecionada — envia auto-resposta com o setor
-    const autoReplyText = buildOptionAutoReply(optionSelectedForReply)
-    if (autoReplyText) {
-      const autoResult = await sendWhatsAppMessage({
-        session: sessionName,
-        to: phone,
-        message: autoReplyText,
-      })
-
-      const autoMsg = await prisma.message.create({
-        data: {
-          conversationId: conversation.id,
-          direction: 'out',
-          content: autoReplyText,
-          waMessageId: autoResult.messageId ?? null,
-        },
-        include: { senderUser: { select: { id: true, name: true } } },
-      })
-
-      broadcastToBusinessClients(String(business.id), {
-        type: 'new_message',
-        conversationId: conversation.id,
-        message: autoMsg,
-      })
-    }
-  }
+  // ── 2. Notifica o n8n para processar respostas automáticas ──
+  notifyN8n({
+    conversationId: conversation.id,
+    businessId: business.id,
+    businessName: business.name,
+    session: sessionName,
+    phone,
+    customerName,
+    text,
+    isNew,
+    optionSelected: optionSelectedForReply,
+  })
 
   return NextResponse.json({ status: 'ok' })
 }

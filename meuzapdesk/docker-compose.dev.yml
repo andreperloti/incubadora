@@ -43,7 +43,25 @@ services:
     volumes:
       - waha_dev_data:/app/sessions
 
+  n8n:
+    image: n8nio/n8n:latest
+    restart: unless-stopped
+    ports:
+      - "5678:5678"
+    environment:
+      - N8N_HOST=localhost
+      - N8N_PORT=5678
+      - N8N_PROTOCOL=http
+      - WEBHOOK_URL=http://localhost:5678
+      - GENERIC_TIMEZONE=America/Sao_Paulo
+      - N8N_BASIC_AUTH_ACTIVE=false
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - n8n_dev_data:/home/node/.n8n
+
 volumes:
   pg_dev_data:
   redis_dev_data:
   waha_dev_data:
+  n8n_dev_data:
