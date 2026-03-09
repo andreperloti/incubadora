@@ -113,7 +113,10 @@ function UserAvatar({ name, image }: { name: string; image?: string | null }) {
 // ─── LeftNavStrip ─────────────────────────────────────────────────────────────
 
 export function LeftNavStrip({ user, activePage }: { user: NavUser; activePage?: Page }) {
+  const [showLogoutConfirm, setShowLogoutConfirm] = useState(false)
+
   return (
+    <>
     <nav
       className="flex-shrink-0 flex flex-col items-center py-3 gap-1"
       style={{ width: '62px', background: '#202c33', borderRight: '1px solid #2a3942' }}
@@ -140,7 +143,7 @@ export function LeftNavStrip({ user, activePage }: { user: NavUser; activePage?:
           </NavItem>
         )}
         <button
-          onClick={() => signOut({ callbackUrl: '/login' })}
+          onClick={() => setShowLogoutConfirm(true)}
           title="Sair"
           className="w-10 h-10 rounded-xl flex items-center justify-center transition"
           style={{ color: '#8696a0' }}
@@ -151,5 +154,40 @@ export function LeftNavStrip({ user, activePage }: { user: NavUser; activePage?:
         </button>
       </div>
     </nav>
+
+    {showLogoutConfirm && (
+      <div
+        className="fixed inset-0 z-50 flex items-center justify-center"
+        style={{ background: 'rgba(0,0,0,0.6)' }}
+        onClick={() => setShowLogoutConfirm(false)}
+      >
+        <div
+          className="rounded-xl p-6 flex flex-col gap-4 w-72"
+          style={{ background: '#202c33', border: '1px solid #2a3942' }}
+          onClick={(e) => e.stopPropagation()}
+        >
+          <p className="text-sm font-medium" style={{ color: '#e9edef' }}>
+            Deseja realmente sair?
+          </p>
+          <div className="flex gap-2 justify-end">
+            <button
+              onClick={() => setShowLogoutConfirm(false)}
+              className="px-4 py-2 rounded-lg text-sm transition"
+              style={{ color: '#aebac1', background: '#2a3942' }}
+            >
+              Cancelar
+            </button>
+            <button
+              onClick={() => signOut({ callbackUrl: '/login' })}
+              className="px-4 py-2 rounded-lg text-sm font-medium transition"
+              style={{ background: '#ef4444', color: '#fff' }}
+            >
+              Sair
+            </button>
+          </div>
+        </div>
+      </div>
+    )}
+    </>
   )
 }
