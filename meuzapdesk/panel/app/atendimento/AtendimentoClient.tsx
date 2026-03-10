@@ -331,6 +331,7 @@ export function AtendimentoClient({
   const [activeConv, setActiveConv] = useState<ConvDetail | null>(null)
   const [loadingConv, setLoadingConv] = useState(false)
   const activeIdRef = useRef<number | null>(null)
+  const loadConversationRef = useRef<((id: number) => Promise<void>) | null>(null)
 
   useEffect(() => {
     activeIdRef.current = selectedId
@@ -349,6 +350,9 @@ export function AtendimentoClient({
     }
   }, [])
 
+  // Mantém ref estável para usar dentro de closures (SSE, polling)
+  loadConversationRef.current = loadConversation
+
   useEffect(() => {
     if (selectedId !== null) {
       loadConversation(selectedId)
@@ -362,13 +366,35 @@ export function AtendimentoClient({
       .catch(() => {})
   }, [])
 
+  // Polling de fallback: recarrega a conversa aberta a cada 10s
+  // Garante que mensagens perdidas pelo SSE (reconexão, hot-reload) apareçam
+  useEffect(() => {
+    const interval = setInterval(() => {
+      if (activeIdRef.current !== null) {
+        loadConversationRef.current?.(activeIdRef.current)
+      }
+      refreshList()
+    }, 10000)
+    return () => clearInterval(interval)
+  }, [refreshList])
+
   useEffect(() => {
     let es: EventSource
     let closed = false
+    let reconnecting = false
 
     function connect() {
       if (closed) return
       es = new EventSource('/api/sse')
+
+      es.onopen = () => {
+        // Ao reconectar, busca mensagens perdidas durante a desconexão
+        if (reconnecting && activeIdRef.current !== null) {
+          loadConversationRef.current?.(activeIdRef.current)
+          refreshList()
+        }
+        reconnecting = false
+      }
 
       es.onmessage = (e) => {
         try {
@@ -391,6 +417,7 @@ export function AtendimentoClient({
 
       es.onerror = () => {
         es.close()
+        reconnecting = true
         if (!closed) {
           setTimeout(connect, 3000)
         }
