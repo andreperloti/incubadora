@@ -69,6 +69,22 @@ function formatTime(iso: string): string {
   return new Date(iso).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
 }
 
+// Remove sufixo @lid/@c.us e formata número brasileiro quando possível
+// Ex: "5516991198729" → "+55 16 99119-8729", "261499100635258@lid" → "261499100635258"
+function formatPhone(phone: string): string {
+  const digits = phone.replace(/@\S+$/, '').replace(/\D/g, '')
+  // Tenta formatar como número BR: 55 + DDD (2) + número (8 ou 9)
+  if (digits.startsWith('55') && (digits.length === 12 || digits.length === 13)) {
+    const ddd = digits.slice(2, 4)
+    const num = digits.slice(4)
+    const formatted = num.length === 9
+      ? `${num.slice(0, 5)}-${num.slice(5)}`
+      : `${num.slice(0, 4)}-${num.slice(4)}`
+    return `+55 ${ddd} ${formatted}`
+  }
+  return digits || phone
+}
+
 // ─── Avatar ──────────────────────────────────────────────────────────────────
 
 function ContactAvatar({
@@ -202,7 +218,7 @@ function ChatPanel({
               </span>
             )}
           </div>
-          <p className="text-xs" style={{ color: '#8696a0' }}>{conversation.customerPhone}</p>
+          <p className="text-xs" style={{ color: '#8696a0' }}>{formatPhone(conversation.customerPhone)}</p>
         </div>
         {conversation.assignedUser && (
           <span className="text-xs hidden sm:block" style={{ color: '#8696a0' }}>
