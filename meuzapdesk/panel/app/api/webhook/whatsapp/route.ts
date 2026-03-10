@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { verifyWebhookSecret, getWahaContactName } from '@/lib/whatsapp'
+import { verifyWebhookSecret, getWahaContactName, getWahaChatName, parsePhoneFromContactName } from '@/lib/whatsapp'
 import { prisma } from '@/lib/db'
 import { broadcastToBusinessClients } from '@/lib/sse'
 
@@ -46,7 +46,8 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ status: 'ignored' })
   }
 
-  const phone = rawFrom.replace('@c.us', '')
+  // Para @c.us: usa apenas o número. Para @lid: mantém o ID completo como identificador (necessário para envio de resposta).
+  const phone = rawFrom.endsWith('@c.us') ? rawFrom.replace('@c.us', '') : rawFrom
   const notifyName: string = payload?.notifyName || payload?.pushName || ''
   const text: string = payload?.body ?? ''
   const waMessageId: string = payload?.id ?? ''
@@ -69,26 +70,74 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ status: 'ok' })
   }
 
-  // Resolve nome do contato: usa notifyName do payload ou busca no WAHA
-  const customerName =
-    notifyName ||
-    (await getWahaContactName(sessionName, phone)) ||
-    phone
+  // Resolve nome do contato:
+  // 1. notifyName/pushName do payload
+  // 2. Para @c.us: lookup no WAHA contacts
+  // 3. Para @lid: busca nome na lista de chats do WAHA
+  // 4. Fallback: phone
+  let customerName = notifyName
+  if (!customerName) {
+    if (rawFrom.endsWith('@lid')) {
+      const chatName = await getWahaChatName(sessionName, rawFrom)
+      if (chatName) {
+        customerName = chatName
+      }
+    } else {
+      customerName = (await getWahaContactName(sessionName, phone)) || phone
+    }
+  }
+  if (!customerName) customerName = phone
 
-  // Verifica se já existe conversa aberta
-  const existing = await prisma.conversation.findFirst({
+  return handleMessage({
+    business, sessionName, phone,
+    rawChatId: rawFrom, customerName,
+    text, waMessageId, waTimestamp,
+  })
+}
+
+async function handleMessage({
+  business, sessionName, phone, rawChatId, customerName, text, waMessageId, waTimestamp,
+}: {
+  business: { id: number; name: string }
+  sessionName: string
+  phone: string
+  rawChatId: string
+  customerName: string
+  text: string
+  waMessageId: string
+  waTimestamp: Date
+}) {
+  // Monta lista de aliases de telefone para o lookup.
+  // Se for @lid, tenta extrair o número real do customerName (ex: "+55 16 99119-8729" → "5516991198729")
+  // para encontrar conversas anteriores que usavam o formato @c.us.
+  const phoneAliases = Array.from(new Set(
+    [phone, rawChatId, parsePhoneFromContactName(customerName)].filter(Boolean) as string[]
+  ))
+
+  // Verifica se já existe conversa aberta (por phone, @lid ou número real extraído do nome)
+  const activeConversations = await prisma.conversation.findMany({
     where: {
       businessId: business.id,
-      customerPhone: phone,
+      customerPhone: { in: phoneAliases },
       status: { not: 'resolved' },
     },
     orderBy: { createdAt: 'desc' },
   })
 
+  // Se houver duplicatas, resolve as mais antigas automaticamente
+  if (activeConversations.length > 1) {
+    const idsToResolve = activeConversations.slice(1).map((c) => c.id)
+    await prisma.conversation.updateMany({
+      where: { id: { in: idsToResolve } },
+      data: { status: 'resolved', resolvedAt: new Date() },
+    })
+  }
+
+  const existing = activeConversations[0] ?? null
+
   const isNew = !existing
   let optionSelectedForReply: number | null = null
-
-  let conversation: typeof existing & {} = existing as any
+  let conversation: any = existing
 
   if (isNew) {
     conversation = await prisma.conversation.create({
@@ -117,10 +166,10 @@ export async function POST(req: NextRequest) {
         status: wasWaitingMenu ? 'in_queue' : existing!.status,
         optionSelected,
         customerName,
-        customerWaitingSince: (existing as any).customerWaitingSince ?? waTimestamp,
+        customerWaitingSince: existing!.customerWaitingSince ?? waTimestamp,
       },
     })
-    conversation = { ...existing!, optionSelected } as any
+    conversation = { ...existing!, optionSelected }
   }
 
   // ── 1. Salva a mensagem recebida com o timestamp real do WhatsApp ──
@@ -142,12 +191,14 @@ export async function POST(req: NextRequest) {
   })
 
   // ── 2. Notifica o n8n para processar respostas automáticas ──
+  // chatId = identificador WAHA correto (@c.us ou @lid) para usar no sendText
   notifyN8n({
     conversationId: conversation.id,
     businessId: business.id,
     businessName: business.name,
     session: sessionName,
     phone,
+    chatId: rawChatId,
     customerName,
     text,
     isNew,
