@@ -80,6 +80,7 @@ function ChatPanel({
   onNewMessage: (msg: Message) => void
 }) {
   const [messages, setMessages] = useState<Message[]>(conversation.messages)
+  const [status, setStatus] = useState(conversation.status)
   const [text, setText] = useState('')
   const [sending, setSending] = useState(false)
   const bottomRef = useRef<HTMLDivElement>(null)
@@ -101,6 +102,7 @@ function ChatPanel({
   // When conversation changes, reset entirely
   useEffect(() => {
     setMessages(conversation.messages)
+    setStatus(conversation.status)
     setText('')
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [conversation.id])
@@ -123,6 +125,7 @@ function ChatPanel({
         setMessages((prev) =>
           prev.some((m) => m.id === data.message.id) ? prev : [...prev, data.message]
         )
+        setStatus('in_progress')
       }
     } else {
       setText(body)
@@ -137,7 +140,7 @@ function ChatPanel({
   }
 
   const displayName = conversation.customerName || conversation.customerPhone
-  const isResolved = conversation.status === 'resolved'
+  const isResolved = status === 'resolved'
 
   return (
     <div className="flex flex-col h-full">
@@ -235,18 +238,10 @@ function ChatPanel({
       </div>
 
       {/* Input */}
-      {isResolved ? (
-        <div
-          className="flex-shrink-0 px-4 py-3 text-center text-xs"
-          style={{ background: '#202c33', color: '#8696a0', borderTop: '1px solid #2a3942' }}
-        >
-          Esta conversa foi encerrada
-        </div>
-      ) : (
-        <div
-          className="flex-shrink-0 px-3 py-2.5 flex items-end gap-2"
-          style={{ background: '#202c33' }}
-        >
+      <div
+        className="flex-shrink-0 px-3 py-2.5 flex items-end gap-2"
+        style={{ background: '#202c33' }}
+      >
           <div
             className="flex-1 rounded-full px-4 py-2.5 flex items-end gap-2"
             style={{ background: '#2a3942', minHeight: '44px' }}
@@ -287,11 +282,11 @@ function ChatPanel({
               </svg>
             )}
           </button>
-        </div>
-      )}
+      </div>
     </div>
   )
 }
+
 
 // ─── Empty State ──────────────────────────────────────────────────────────────
 
@@ -368,28 +363,46 @@ export function AtendimentoClient({
   }, [])
 
   useEffect(() => {
-    const es = new EventSource('/api/sse')
+    let es: EventSource
+    let closed = false
 
-    es.onmessage = (e) => {
-      try {
-        const event = JSON.parse(e.data)
+    function connect() {
+      if (closed) return
+      es = new EventSource('/api/sse')
 
-        if (event.type === 'new_message') {
-          if (event.conversationId === activeIdRef.current) {
-            setActiveConv((prev) =>
-              prev ? { ...prev, messages: [...prev.messages, event.message] } : prev
-            )
+      es.onmessage = (e) => {
+        try {
+          const event = JSON.parse(e.data)
+
+          if (event.type === 'new_message') {
+            if (event.conversationId === activeIdRef.current) {
+              setActiveConv((prev) =>
+                prev ? { ...prev, messages: [...prev.messages, event.message] } : prev
+              )
+            }
+            refreshList()
           }
-          refreshList()
-        }
 
-        if (event.type === 'alert') {
-          refreshList()
+          if (event.type === 'alert') {
+            refreshList()
+          }
+        } catch {}
+      }
+
+      es.onerror = () => {
+        es.close()
+        if (!closed) {
+          setTimeout(connect, 3000)
         }
-      } catch {}
+      }
     }
 
-    return () => es.close()
+    connect()
+
+    return () => {
+      closed = true
+      es?.close()
+    }
   }, [refreshList])
 
   function handleResolve() {
