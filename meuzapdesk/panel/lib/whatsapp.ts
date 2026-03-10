@@ -13,9 +13,19 @@ function wahaHeaders() {
 
 // Converte número de telefone para chatId do WAHA
 // Ex: "5511999999999" → "5511999999999@c.us"
+// Se já tiver sufixo @ (ex: @c.us ou @lid), retorna como está
 export function toChatId(phone: string): string {
+  if (phone.includes('@')) return phone
   const cleaned = phone.replace(/\D/g, '')
   return `${cleaned}@c.us`
+}
+
+// Tenta extrair número de telefone de um nome de contato como "+55 16 99119-8729"
+// Retorna null se o nome não parecer um número de telefone
+export function parsePhoneFromContactName(name: string): string | null {
+  const digits = name.replace(/\D/g, '')
+  if (digits.length >= 10 && digits.length <= 15) return digits
+  return null
 }
 
 interface SendMessageResult {
@@ -194,6 +204,8 @@ export async function getWahaContactName(
   session: string,
   phone: string
 ): Promise<string | null> {
+  // Contatos @lid não têm endpoint de lookup — skip
+  if (phone.endsWith('@lid')) return null
   try {
     const contactId = toChatId(phone)
     const res = await fetch(
@@ -207,6 +219,28 @@ export async function getWahaContactName(
     // Evita retornar o próprio número como nome
     if (name && name !== phone && name !== contactId) return name
     return null
+  } catch {
+    return null
+  }
+}
+
+// Busca o nome de um chat @lid na visão geral de chats do WAHA
+export async function getWahaChatName(
+  session: string,
+  chatId: string
+): Promise<string | null> {
+  try {
+    const res = await fetch(
+      `${WAHA_API_URL}/api/${session}/chats/overview?limit=100`,
+      { headers: wahaHeaders() }
+    )
+    if (!res.ok) return null
+    const chats: any[] = await res.json()
+    const chat = chats.find((c: any) => {
+      const id = typeof c.id === 'object' ? c.id?._serialized : c.id
+      return id === chatId
+    })
+    return chat?.name || null
   } catch {
     return null
   }

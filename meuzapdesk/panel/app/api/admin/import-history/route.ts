@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/db'
+import { parsePhoneFromContactName } from '@/lib/whatsapp'
 
 const WAHA_API_URL = process.env.WAHA_API_URL || 'http://localhost:3002'
 const WAHA_API_KEY = process.env.WAHA_API_KEY || ''
@@ -20,8 +21,16 @@ function extractId(id: unknown): string {
   return ''
 }
 
-function extractPhone(chatId: unknown): string {
-  return extractId(chatId).replace('@c.us', '')
+// Dado um chatId (ex: "5511999@c.us" ou "12345@lid") e o nome do chat,
+// retorna o valor a usar como customerPhone no banco.
+// Para @c.us: número puro. Para @lid: tenta extrair de name, senão usa o @lid.
+function resolveCustomerPhone(chatId: string, chatName: string): string {
+  if (chatId.endsWith('@c.us')) {
+    return chatId.replace('@c.us', '')
+  }
+  // @lid: tenta usar o número contido no nome
+  const phoneFromName = parsePhoneFromContactName(chatName)
+  return phoneFromName ?? chatId
 }
 
 export async function POST(req: NextRequest) {
@@ -45,27 +54,37 @@ export async function POST(req: NextRequest) {
 
   const wahaSession = business.wahaSession
 
-  // Busca lista de chats do WAHA
+  // Usa chats/overview que retorna tanto @c.us quanto @lid com nome e última mensagem
   const chatsRes = await fetch(
+    `${WAHA_API_URL}/api/${wahaSession}/chats/overview?limit=${chatsLimit}`,
+    { headers: wahaHeaders() }
+  ).catch(() => null)
+
+  // Fallback para endpoint /chats se overview não existir
+  const fallbackRes = chatsRes?.ok ? null : await fetch(
     `${WAHA_API_URL}/api/${wahaSession}/chats?limit=${chatsLimit}`,
     { headers: wahaHeaders() }
   ).catch(() => null)
 
-  if (!chatsRes?.ok) {
+  const activeRes = chatsRes?.ok ? chatsRes : fallbackRes
+
+  if (!activeRes?.ok) {
     return NextResponse.json(
       { error: 'Erro ao buscar conversas do WAHA. Verifique se o WhatsApp está conectado.' },
       { status: 502 }
     )
   }
 
-  const chatsData = await chatsRes.json()
+  const chatsData = await activeRes.json()
   const allChats: any[] = Array.isArray(chatsData) ? chatsData : (chatsData.chats ?? [])
 
-  // Filtra apenas chats individuais (@c.us) — o id pode ser objeto ou string
+  // Filtra apenas chats individuais (exclui grupos, broadcasts e o próprio WhatsApp Business)
   const individualChats = allChats
     .filter((c: any) => {
-      const serialized = extractId(c.id)
-      return serialized.endsWith('@c.us') && !c.isGroup
+      const id = extractId(c.id)
+      if (c.isGroup || c.isBroadcast) return false
+      if (id === '0@c.us' || id.endsWith('@broadcast') || id.endsWith('@newsletter')) return false
+      return id.endsWith('@c.us') || id.endsWith('@lid')
     })
     .slice(0, chatsLimit)
 
@@ -75,8 +94,9 @@ export async function POST(req: NextRequest) {
 
   for (const chat of individualChats) {
     const chatId = extractId(chat.id)
-    const phone = extractPhone(chat.id)
-    const customerName = chat.name || chat.displayName || phone
+    const chatName = chat.name || chat.displayName || ''
+    const customerPhone = resolveCustomerPhone(chatId, chatName)
+    const customerName = chatName || customerPhone
 
     // Busca mensagens do chat
     const msgsRes = await fetch(
@@ -105,9 +125,10 @@ export async function POST(req: NextRequest) {
     const lastMsg = textMessages[textMessages.length - 1]
     const lastMsgAt = lastMsg.timestamp ? new Date(lastMsg.timestamp * 1000) : new Date()
 
-    // Verifica se já existe uma conversa para esse telefone
+    // Verifica se já existe conversa — busca tanto pelo phone quanto pelo @lid
+    const searchPhones = Array.from(new Set([customerPhone, chatId].filter(Boolean)))
     let conversation = await prisma.conversation.findFirst({
-      where: { businessId, customerPhone: phone },
+      where: { businessId, customerPhone: { in: searchPhones } },
       orderBy: { createdAt: 'desc' },
     })
 
@@ -115,7 +136,7 @@ export async function POST(req: NextRequest) {
       conversation = await prisma.conversation.create({
         data: {
           businessId,
-          customerPhone: phone,
+          customerPhone,
           customerName,
           status: 'resolved',
           lastCustomerMessageAt: lastMsgAt,
@@ -123,6 +144,14 @@ export async function POST(req: NextRequest) {
         },
       })
       importedConversations++
+    } else {
+      // Atualiza nome se estava vazio ou era o próprio phone
+      if (!conversation.customerName || conversation.customerName === conversation.customerPhone) {
+        await prisma.conversation.update({
+          where: { id: conversation.id },
+          data: { customerName },
+        })
+      }
     }
 
     // Carrega IDs já existentes para evitar duplicatas
