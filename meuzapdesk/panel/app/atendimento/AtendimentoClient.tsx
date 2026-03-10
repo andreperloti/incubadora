@@ -366,18 +366,6 @@ export function AtendimentoClient({
       .catch(() => {})
   }, [])
 
-  // Polling de fallback: recarrega a conversa aberta a cada 10s
-  // Garante que mensagens perdidas pelo SSE (reconexão, hot-reload) apareçam
-  useEffect(() => {
-    const interval = setInterval(() => {
-      if (activeIdRef.current !== null) {
-        loadConversationRef.current?.(activeIdRef.current)
-      }
-      refreshList()
-    }, 10000)
-    return () => clearInterval(interval)
-  }, [refreshList])
-
   useEffect(() => {
     let es: EventSource
     let closed = false

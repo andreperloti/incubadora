@@ -1,46 +1,15 @@
-// Gerenciador de conexões SSE em memória (por processo)
-// Para produção com múltiplos pods, migrar para Redis Pub/Sub
-
-type SSEClient = {
-  id: string
-  controller: ReadableStreamDefaultController
-  businessId: string
-}
-
-const clients = new Map<string, SSEClient>()
-
-export function addSSEClient(id: string, controller: ReadableStreamDefaultController, businessId: string) {
-  clients.set(id, { id, controller, businessId })
-}
-
-export function removeSSEClient(id: string) {
-  clients.delete(id)
-}
+// Broadcast via Redis Pub/Sub — funciona com múltiplos processos/workers
+// e não perde clientes em hot reloads do Next.js
+import { redisPublisher, businessChannel } from './redis'
 
 export function broadcastToBusinessClients(businessId: string, data: object) {
-  const message = `data: ${JSON.stringify(data)}\n\n`
-  const encoder = new TextEncoder()
-
-  for (const client of Array.from(clients.values())) {
-    if (client.businessId === businessId) {
-      try {
-        client.controller.enqueue(encoder.encode(message))
-      } catch {
-        clients.delete(client.id)
-      }
-    }
-  }
+  const message = JSON.stringify(data)
+  redisPublisher.publish(businessChannel(businessId), message).catch((err) => {
+    console.error('[SSE] Falha ao publicar no Redis:', err)
+  })
 }
 
-export function broadcastToAll(data: object) {
-  const message = `data: ${JSON.stringify(data)}\n\n`
-  const encoder = new TextEncoder()
-
-  for (const client of Array.from(clients.values())) {
-    try {
-      client.controller.enqueue(encoder.encode(message))
-    } catch {
-      clients.delete(client.id)
-    }
-  }
+// Mantido para compatibilidade — não utilizado com Redis Pub/Sub
+export function broadcastToAll(_data: object) {
+  console.warn('[SSE] broadcastToAll não implementado com Redis Pub/Sub')
 }

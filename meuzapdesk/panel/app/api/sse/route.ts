@@ -1,8 +1,7 @@
 import { NextRequest } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
-import { addSSEClient, removeSSEClient } from '@/lib/sse'
-import { randomUUID } from 'crypto'
+import { createRedisSubscriber, businessChannel } from '@/lib/redis'
 
 export const dynamic = 'force-dynamic'
 
@@ -12,25 +11,38 @@ export async function GET(req: NextRequest) {
     return new Response('Não autorizado', { status: 401 })
   }
 
-  const businessId = (session.user as any).businessId
-  const clientId = randomUUID()
+  const businessId = String((session.user as any).businessId)
+  const channel = businessChannel(businessId)
+
+  // Cada conexão SSE tem seu próprio subscriber Redis dedicado
+  const subscriber = createRedisSubscriber()
 
   const stream = new ReadableStream({
-    start(controller) {
-      addSSEClient(clientId, controller, businessId)
+    async start(controller) {
+      const encoder = new TextEncoder()
 
-      // Heartbeat a cada 30s para manter a conexão viva
-      const heartbeat = setInterval(() => {
+      const send = (data: string) => {
         try {
-          controller.enqueue(new TextEncoder().encode(': heartbeat\n\n'))
+          controller.enqueue(encoder.encode(data))
         } catch {
-          clearInterval(heartbeat)
+          // Controller fechado — cleanup no abort
         }
-      }, 30000)
+      }
 
-      req.signal.addEventListener('abort', () => {
+      // Repassa mensagens do Redis para o browser via SSE
+      await subscriber.subscribe(channel, (message) => {
+        send(`data: ${message}\n\n`)
+      })
+
+      // Heartbeat a cada 25s para manter a conexão viva (proxies cortam após 30s)
+      const heartbeat = setInterval(() => {
+        send(': heartbeat\n\n')
+      }, 25000)
+
+      req.signal.addEventListener('abort', async () => {
         clearInterval(heartbeat)
-        removeSSEClient(clientId)
+        await subscriber.unsubscribe(channel)
+        subscriber.disconnect()
         controller.close()
       })
     },
@@ -39,8 +51,9 @@ export async function GET(req: NextRequest) {
   return new Response(stream, {
     headers: {
       'Content-Type': 'text/event-stream',
-      'Cache-Control': 'no-cache',
+      'Cache-Control': 'no-cache, no-transform',
       Connection: 'keep-alive',
+      'X-Accel-Buffering': 'no', // desativa buffer do nginx
     },
   })
 }
