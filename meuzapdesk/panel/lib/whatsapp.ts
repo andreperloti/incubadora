@@ -219,6 +219,31 @@ export async function getWahaContactAvatar(
   }
 }
 
+// Busca o número de telefone real de um contato @lid via WAHA
+// Para @c.us: extrai direto do chatId. Para @lid: consulta a API de contatos.
+export async function getWahaContactPhone(
+  session: string,
+  chatId: string
+): Promise<string | null> {
+  if (chatId.endsWith('@c.us')) return chatId.replace('@c.us', '')
+  if (!chatId.endsWith('@lid')) return null
+  try {
+    const res = await fetch(
+      `${WAHA_API_URL}/api/contacts?contactId=${encodeURIComponent(chatId)}&session=${encodeURIComponent(session)}`,
+      { headers: wahaHeaders() }
+    )
+    if (!res.ok) return null
+    const data = await res.json()
+    // WAHA pode retornar 'number' (somente dígitos) ou 'id' em formato @c.us
+    if (data?.number) return String(data.number)
+    const id: string = data?.id || ''
+    if (id.endsWith('@c.us')) return id.replace('@c.us', '')
+    return null
+  } catch {
+    return null
+  }
+}
+
 // Busca o nome do contato no WAHA (fallback quando notifyName não vem no payload)
 // Retorna null se não encontrar ou der erro
 export async function getWahaContactName(

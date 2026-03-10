@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { verifyWebhookSecret, getWahaContactName, getWahaChatName, parsePhoneFromContactName, getWahaContactAvatar } from '@/lib/whatsapp'
+import { verifyWebhookSecret, getWahaContactName, getWahaChatName, parsePhoneFromContactName, getWahaContactAvatar, getWahaContactPhone } from '@/lib/whatsapp'
 import { prisma } from '@/lib/db'
 import { broadcastToBusinessClients } from '@/lib/sse'
 
@@ -139,8 +139,11 @@ async function handleMessage({
   let optionSelectedForReply: number | null = null
   let conversation: any = existing
 
-  // Busca a foto de perfil de forma assíncrona (fire-and-forget para não bloquear)
-  const avatarUrl = await getWahaContactAvatar(sessionName, phone)
+  // Busca foto de perfil e número real em paralelo
+  const [avatarUrl, realPhone] = await Promise.all([
+    getWahaContactAvatar(sessionName, phone),
+    getWahaContactPhone(sessionName, rawChatId),
+  ])
 
   if (isNew) {
     conversation = await prisma.conversation.create({
@@ -149,6 +152,7 @@ async function handleMessage({
         customerPhone: phone,
         customerName,
         customerAvatar: avatarUrl,
+        customerRealPhone: realPhone,
         status: 'waiting_menu',
         unreadCount: 1,
         lastCustomerMessageAt: waTimestamp,
@@ -172,9 +176,8 @@ async function handleMessage({
       customerWaitingSince: existing!.customerWaitingSince ?? waTimestamp,
       unreadCount: { increment: 1 },
     }
-    if (avatarUrl && !existing!.customerAvatar) {
-      updateData.customerAvatar = avatarUrl
-    }
+    if (avatarUrl && !existing!.customerAvatar) updateData.customerAvatar = avatarUrl
+    if (realPhone && !existing!.customerRealPhone) updateData.customerRealPhone = realPhone
 
     await prisma.conversation.update({
       where: { id: existing!.id },

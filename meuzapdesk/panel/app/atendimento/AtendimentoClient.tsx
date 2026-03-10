@@ -14,6 +14,7 @@ type ConvSummary = {
   customerPhone: string
   customerName: string | null
   customerAvatar: string | null
+  customerRealPhone: string | null
   status: string
   unreadCount: number
   optionSelected: number | null
@@ -37,6 +38,7 @@ type ConvDetail = {
   customerPhone: string
   customerName: string | null
   customerAvatar: string | null
+  customerRealPhone: string | null
   status: string
   messages: Message[]
   assignedUser: { id: number; name: string } | null
@@ -71,9 +73,8 @@ function formatTime(iso: string): string {
 
 // Remove sufixo @lid/@c.us e formata número brasileiro quando possível
 // Ex: "5516991198729" → "+55 16 99119-8729", "261499100635258@lid" → "261499100635258"
-function formatPhone(phone: string): string {
-  const digits = phone.replace(/@\S+$/, '').replace(/\D/g, '')
-  // Tenta formatar como número BR: 55 + DDD (2) + número (8 ou 9)
+function formatPhone(raw: string): string {
+  const digits = raw.replace(/@\S+$/, '').replace(/\D/g, '')
   if (digits.startsWith('55') && (digits.length === 12 || digits.length === 13)) {
     const ddd = digits.slice(2, 4)
     const num = digits.slice(4)
@@ -82,7 +83,22 @@ function formatPhone(phone: string): string {
       : `${num.slice(0, 4)}-${num.slice(4)}`
     return `+55 ${ddd} ${formatted}`
   }
-  return digits || phone
+  return digits || raw
+}
+
+// Melhor número para exibição:
+// 1. customerRealPhone (obtido do WAHA para contatos @lid)
+// 2. nome quando parece telefone (ex: "+55 16 99119-8729")
+// 3. formata o customerPhone diretamente
+function displayPhone(phone: string, name: string | null, realPhone: string | null = null): string {
+  if (realPhone) return formatPhone(realPhone)
+  if (name) {
+    const nameDigits = name.replace(/\D/g, '')
+    if (nameDigits.length >= 10 && nameDigits.length <= 15) {
+      return formatPhone(nameDigits)
+    }
+  }
+  return formatPhone(phone)
 }
 
 // ─── Avatar ──────────────────────────────────────────────────────────────────
@@ -218,7 +234,11 @@ function ChatPanel({
               </span>
             )}
           </div>
-          <p className="text-xs" style={{ color: '#8696a0' }}>{formatPhone(conversation.customerPhone)}</p>
+          {(() => {
+            const hasRealName = (conversation.customerRealPhone !== null) || (conversation.customerName !== null && conversation.customerName.replace(/\D/g, '').length < 10)
+            const p = displayPhone(conversation.customerPhone, conversation.customerName, conversation.customerRealPhone)
+            return hasRealName && p.startsWith('+') ? <p className="text-xs" style={{ color: '#8696a0' }}>{p}</p> : null
+          })()}
         </div>
         {conversation.assignedUser && (
           <span className="text-xs hidden sm:block" style={{ color: '#8696a0' }}>

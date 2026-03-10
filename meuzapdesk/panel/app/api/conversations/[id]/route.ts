@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/db'
-import { getWahaContactAvatar } from '@/lib/whatsapp'
+import { getWahaContactAvatar, getWahaContactPhone } from '@/lib/whatsapp'
 
 export async function GET(
   _req: NextRequest,
@@ -33,18 +33,19 @@ export async function GET(
     return NextResponse.json({ error: 'Conversa não encontrada' }, { status: 404 })
   }
 
-  // Busca avatar se ainda não tiver (fire-and-forget — não bloqueia a resposta)
-  let newAvatar: string | null = null
-  if (!conversation.customerAvatar) {
-    newAvatar = await getWahaContactAvatar(conversation.business.wahaSession, conversation.customerPhone)
-  }
+  // Busca avatar e número real se ainda não tiver
+  const [newAvatar, newRealPhone] = await Promise.all([
+    conversation.customerAvatar ? Promise.resolve(null) : getWahaContactAvatar(conversation.business.wahaSession, conversation.customerPhone),
+    conversation.customerRealPhone ? Promise.resolve(null) : getWahaContactPhone(conversation.business.wahaSession, conversation.customerPhone),
+  ])
 
-  // Zera não lidas e salva avatar se encontrado
+  // Zera não lidas, salva avatar e número real se encontrados
   await prisma.conversation.update({
     where: { id: conversationId },
     data: {
       unreadCount: 0,
       ...(newAvatar ? { customerAvatar: newAvatar } : {}),
+      ...(newRealPhone ? { customerRealPhone: newRealPhone } : {}),
     },
   })
 
@@ -54,5 +55,6 @@ export async function GET(
     ...convData,
     unreadCount: 0,
     customerAvatar: newAvatar ?? conversation.customerAvatar,
+    customerRealPhone: newRealPhone ?? conversation.customerRealPhone,
   })
 }
