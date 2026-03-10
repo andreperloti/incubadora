@@ -3,6 +3,10 @@ import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/db'
 
+function normalizePhone(phone: string): string {
+  return phone.replace(/@\S+$/, '').replace(/\D/g, '')
+}
+
 export async function GET() {
   const session = await getServerSession(authOptions)
   if (!session) return NextResponse.json({ error: 'Não autorizado' }, { status: 401 })
@@ -17,10 +21,18 @@ export async function GET() {
 
   const active = await prisma.conversation.findMany({
     where: { businessId, status: { in: ['in_queue', 'in_progress', 'waiting_menu'] } },
-    select: { customerPhone: true },
+    select: { customerPhone: true, customerName: true },
   })
 
-  const activePhones = new Set(active.map((c) => c.customerPhone))
+  const activeNormalized = new Set<string>()
+  for (const c of active) {
+    activeNormalized.add(normalizePhone(c.customerPhone))
+    if (c.customerName) {
+      const n = normalizePhone(c.customerName)
+      if (n.length >= 10) activeNormalized.add(n)
+    }
+  }
+
   const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000)
 
   const recentRaw = await prisma.conversation.findMany({
@@ -34,11 +46,19 @@ export async function GET() {
     take: 100,
   })
 
-  const seenPhones = new Set<string>()
+  const seenNormalized = new Set<string>()
   const recent = recentRaw.filter((c) => {
-    if (activePhones.has(c.customerPhone)) return false
-    if (seenPhones.has(c.customerPhone)) return false
-    seenPhones.add(c.customerPhone)
+    const phoneNorm = normalizePhone(c.customerPhone)
+    const nameNorm = c.customerName ? normalizePhone(c.customerName) : null
+
+    if (activeNormalized.has(phoneNorm)) return false
+    if (nameNorm && nameNorm.length >= 10 && activeNormalized.has(nameNorm)) return false
+
+    if (seenNormalized.has(phoneNorm)) return false
+    if (nameNorm && nameNorm.length >= 10 && seenNormalized.has(nameNorm)) return false
+
+    seenNormalized.add(phoneNorm)
+    if (nameNorm && nameNorm.length >= 10) seenNormalized.add(nameNorm)
     return true
   }).slice(0, 20)
 

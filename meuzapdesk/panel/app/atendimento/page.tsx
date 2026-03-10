@@ -6,6 +6,12 @@ import { AtendimentoClient } from './AtendimentoClient'
 
 export const dynamic = 'force-dynamic'
 
+// Normaliza phone para comparação: remove @c.us/@lid e não-dígitos
+// Ex: "54919830708295@lid" → "54919830708295", "+55 16 99119-8729" → "5516991198729"
+function normalizePhone(phone: string): string {
+  return phone.replace(/@\S+$/, '').replace(/\D/g, '')
+}
+
 export default async function AtendimentoPage() {
   const session = await getServerSession(authOptions)
   if (!session) redirect('/login')
@@ -28,11 +34,19 @@ export default async function AtendimentoPage() {
     orderBy: { customerWaitingSince: 'asc' },
   })
 
+  // Normaliza todos os phones ativos (e nomes quando parecem telefone)
+  // para lidar com o mesmo contato aparecendo como @c.us e @lid
+  const activeNormalized = new Set<string>()
+  for (const c of active) {
+    activeNormalized.add(normalizePhone(c.customerPhone))
+    if (c.customerName) {
+      const n = normalizePhone(c.customerName)
+      if (n.length >= 10) activeNormalized.add(n)
+    }
+  }
+
   // Últimas conversas resolvidas dos últimos 7 dias (histórico recente)
-  // Deduplica por customerPhone mantendo apenas a mais recente por número,
-  // e exclui números que já têm conversa ativa na fila.
   const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000)
-  const activePhones = new Set(active.map((c) => c.customerPhone))
 
   const recentRaw = await prisma.conversation.findMany({
     where: {
@@ -45,11 +59,21 @@ export default async function AtendimentoPage() {
     take: 100,
   })
 
-  const seenPhones = new Set<string>()
+  const seenNormalized = new Set<string>()
   const recent = recentRaw.filter((c) => {
-    if (activePhones.has(c.customerPhone)) return false
-    if (seenPhones.has(c.customerPhone)) return false
-    seenPhones.add(c.customerPhone)
+    const phoneNorm = normalizePhone(c.customerPhone)
+    const nameNorm = c.customerName ? normalizePhone(c.customerName) : null
+
+    // Exclui se já tem conversa ativa com esse número
+    if (activeNormalized.has(phoneNorm)) return false
+    if (nameNorm && nameNorm.length >= 10 && activeNormalized.has(nameNorm)) return false
+
+    // Deduplica: mantém apenas a mais recente por número normalizado
+    if (seenNormalized.has(phoneNorm)) return false
+    if (nameNorm && nameNorm.length >= 10 && seenNormalized.has(nameNorm)) return false
+
+    seenNormalized.add(phoneNorm)
+    if (nameNorm && nameNorm.length >= 10) seenNormalized.add(nameNorm)
     return true
   }).slice(0, 20)
 
