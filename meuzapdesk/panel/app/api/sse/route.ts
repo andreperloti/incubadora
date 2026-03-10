@@ -29,10 +29,15 @@ export async function GET(req: NextRequest) {
         }
       }
 
-      // Repassa mensagens do Redis para o browser via SSE
-      await subscriber.subscribe(channel, (message) => {
-        send(`data: ${message}\n\n`)
+      // Mensagens chegam via evento 'message' — o callback de subscribe é apenas confirmação
+      subscriber.on('message', (ch, message) => {
+        if (ch === channel) {
+          send(`data: ${message}\n\n`)
+        }
       })
+
+      // Repassa mensagens do Redis para o browser via SSE
+      await subscriber.subscribe(channel)
 
       // Heartbeat a cada 25s para manter a conexão viva (proxies cortam após 30s)
       const heartbeat = setInterval(() => {
