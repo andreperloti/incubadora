@@ -33,22 +33,26 @@ export async function GET(
     return NextResponse.json({ error: 'Conversa não encontrada' }, { status: 404 })
   }
 
-  const updates: Record<string, unknown> = { unreadCount: 0 }
-
-  // Busca avatar se ainda não tiver
+  // Busca avatar se ainda não tiver (fire-and-forget — não bloqueia a resposta)
+  let newAvatar: string | null = null
   if (!conversation.customerAvatar) {
-    const avatarUrl = await getWahaContactAvatar(conversation.business.wahaSession, conversation.customerPhone)
-    if (avatarUrl) updates.customerAvatar = avatarUrl
+    newAvatar = await getWahaContactAvatar(conversation.business.wahaSession, conversation.customerPhone)
   }
 
-  await prisma.conversation.update({ where: { id: conversationId }, data: updates })
+  // Zera não lidas e salva avatar se encontrado
+  await prisma.conversation.update({
+    where: { id: conversationId },
+    data: {
+      unreadCount: 0,
+      ...(newAvatar ? { customerAvatar: newAvatar } : {}),
+    },
+  })
 
   const { business: _b, ...convData } = conversation
-  const result = {
+
+  return NextResponse.json({
     ...convData,
     unreadCount: 0,
-    customerAvatar: (updates.customerAvatar as string | undefined) ?? conversation.customerAvatar,
-  }
-
-  return NextResponse.json(result)
+    customerAvatar: newAvatar ?? conversation.customerAvatar,
+  })
 }
