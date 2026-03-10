@@ -198,6 +198,27 @@ export function verifyWebhookSecret(secret: string): boolean {
   return secret === (process.env.WAHA_WEBHOOK_SECRET || '')
 }
 
+// Busca a foto de perfil do contato no WAHA
+// Retorna null se não houver foto ou der erro (privacidade, contato não encontrado, etc.)
+export async function getWahaContactAvatar(
+  session: string,
+  phone: string
+): Promise<string | null> {
+  if (phone.includes('@lid')) return null
+  try {
+    const contactId = toChatId(phone)
+    const res = await fetch(
+      `${WAHA_API_URL}/api/contacts/profile-picture?contactId=${encodeURIComponent(contactId)}&session=${encodeURIComponent(session)}`,
+      { headers: wahaHeaders() }
+    )
+    if (!res.ok) return null
+    const data = await res.json()
+    return data?.profilePictureURL || null
+  } catch {
+    return null
+  }
+}
+
 // Busca o nome do contato no WAHA (fallback quando notifyName não vem no payload)
 // Retorna null se não encontrar ou der erro
 export async function getWahaContactName(

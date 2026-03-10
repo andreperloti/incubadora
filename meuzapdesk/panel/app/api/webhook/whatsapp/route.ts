@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { verifyWebhookSecret, getWahaContactName, getWahaChatName, parsePhoneFromContactName } from '@/lib/whatsapp'
+import { verifyWebhookSecret, getWahaContactName, getWahaChatName, parsePhoneFromContactName, getWahaContactAvatar } from '@/lib/whatsapp'
 import { prisma } from '@/lib/db'
 import { broadcastToBusinessClients } from '@/lib/sse'
 
@@ -139,12 +139,16 @@ async function handleMessage({
   let optionSelectedForReply: number | null = null
   let conversation: any = existing
 
+  // Busca a foto de perfil de forma assíncrona (fire-and-forget para não bloquear)
+  const avatarUrl = await getWahaContactAvatar(sessionName, phone)
+
   if (isNew) {
     conversation = await prisma.conversation.create({
       data: {
         businessId: business.id,
         customerPhone: phone,
         customerName,
+        customerAvatar: avatarUrl,
         status: 'waiting_menu',
         lastCustomerMessageAt: waTimestamp,
         customerWaitingSince: waTimestamp,
@@ -159,17 +163,23 @@ async function handleMessage({
       optionSelectedForReply = optionSelected
     }
 
+    // Atualiza avatar se ainda não tiver
+    const updateData: any = {
+      lastCustomerMessageAt: waTimestamp,
+      status: wasWaitingMenu ? 'in_queue' : existing!.status,
+      optionSelected,
+      customerName,
+      customerWaitingSince: existing!.customerWaitingSince ?? waTimestamp,
+    }
+    if (avatarUrl && !existing!.customerAvatar) {
+      updateData.customerAvatar = avatarUrl
+    }
+
     await prisma.conversation.update({
       where: { id: existing!.id },
-      data: {
-        lastCustomerMessageAt: waTimestamp,
-        status: wasWaitingMenu ? 'in_queue' : existing!.status,
-        optionSelected,
-        customerName,
-        customerWaitingSince: existing!.customerWaitingSince ?? waTimestamp,
-      },
+      data: updateData,
     })
-    conversation = { ...existing!, optionSelected }
+    conversation = { ...existing!, optionSelected, customerAvatar: avatarUrl || existing!.customerAvatar }
   }
 
   // ── 1. Salva a mensagem recebida com o timestamp real do WhatsApp ──

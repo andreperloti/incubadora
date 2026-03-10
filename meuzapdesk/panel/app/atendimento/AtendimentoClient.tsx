@@ -13,6 +13,7 @@ type ConvSummary = {
   id: number
   customerPhone: string
   customerName: string | null
+  customerAvatar: string | null
   status: string
   optionSelected: number | null
   lastCustomerMessageAt: string | null
@@ -34,6 +35,7 @@ type ConvDetail = {
   id: number
   customerPhone: string
   customerName: string | null
+  customerAvatar: string | null
   status: string
   messages: Message[]
   assignedUser: { id: number; name: string } | null
@@ -64,6 +66,41 @@ function minutesAgo(date: string | null): string {
 
 function formatTime(iso: string): string {
   return new Date(iso).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
+}
+
+// ─── Avatar ──────────────────────────────────────────────────────────────────
+
+function ContactAvatar({
+  name,
+  avatarUrl,
+  size = 40,
+  bg = '#15803d',
+}: {
+  name: string
+  avatarUrl: string | null
+  size?: number
+  bg?: string
+}) {
+  const [imgError, setImgError] = useState(false)
+  const showImg = avatarUrl && !imgError
+
+  return (
+    <div
+      className="rounded-full flex items-center justify-center text-white font-semibold flex-shrink-0 overflow-hidden"
+      style={{ width: size, height: size, background: showImg ? 'transparent' : bg }}
+    >
+      {showImg ? (
+        <img
+          src={avatarUrl}
+          alt={name}
+          style={{ width: size, height: size, objectFit: 'cover' }}
+          onError={() => setImgError(true)}
+        />
+      ) : (
+        <span style={{ fontSize: size * 0.4 }}>{name.charAt(0).toUpperCase()}</span>
+      )}
+    </div>
+  )
 }
 
 // ─── ChatPanel ────────────────────────────────────────────────────────────────
@@ -149,12 +186,12 @@ function ChatPanel({
         className="flex-shrink-0 px-4 py-3 flex items-center gap-3 border-b"
         style={{ background: '#202c33', borderColor: '#2a3942' }}
       >
-        <div
-          className="w-10 h-10 rounded-full flex items-center justify-center text-white font-semibold flex-shrink-0"
-          style={{ background: isResolved ? '#3d5060' : '#15803d' }}
-        >
-          {displayName.charAt(0).toUpperCase()}
-        </div>
+        <ContactAvatar
+          name={displayName}
+          avatarUrl={conversation.customerAvatar}
+          size={40}
+          bg={isResolved ? '#3d5060' : '#15803d'}
+        />
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2">
             <p className="font-semibold text-gray-100 text-sm">{displayName}</p>
@@ -527,9 +564,12 @@ export function AtendimentoClient({
                     )}
                     style={{ borderBottomColor: '#2a3942' }}
                   >
-                    <div className="flex-shrink-0 w-11 h-11 rounded-full bg-teal-700 flex items-center justify-center text-white font-semibold text-base">
-                      {displayName.charAt(0).toUpperCase()}
-                    </div>
+                    <ContactAvatar
+                      name={displayName}
+                      avatarUrl={conv.customerAvatar}
+                      size={44}
+                      bg="#0e7490"
+                    />
 
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center justify-between gap-1">
@@ -592,12 +632,12 @@ export function AtendimentoClient({
                         )}
                         style={{ borderBottomColor: '#2a3942', opacity: 0.75 }}
                       >
-                        <div
-                          className="flex-shrink-0 w-11 h-11 rounded-full flex items-center justify-center text-white font-semibold text-base"
-                          style={{ background: '#3d5060' }}
-                        >
-                          {displayName.charAt(0).toUpperCase()}
-                        </div>
+                        <ContactAvatar
+                          name={displayName}
+                          avatarUrl={conv.customerAvatar}
+                          size={44}
+                          bg="#3d5060"
+                        />
 
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center justify-between gap-1">
