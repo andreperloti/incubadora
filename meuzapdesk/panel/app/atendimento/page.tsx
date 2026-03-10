@@ -28,13 +28,30 @@ export default async function AtendimentoPage() {
     orderBy: { customerWaitingSince: 'asc' },
   })
 
-  // Últimas 10 conversas resolvidas (histórico recente)
-  const recent = await prisma.conversation.findMany({
-    where: { businessId, status: 'resolved' },
+  // Últimas conversas resolvidas dos últimos 7 dias (histórico recente)
+  // Deduplica por customerPhone mantendo apenas a mais recente por número,
+  // e exclui números que já têm conversa ativa na fila.
+  const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000)
+  const activePhones = new Set(active.map((c) => c.customerPhone))
+
+  const recentRaw = await prisma.conversation.findMany({
+    where: {
+      businessId,
+      status: 'resolved',
+      lastCustomerMessageAt: { gte: sevenDaysAgo },
+    },
     include,
     orderBy: { lastCustomerMessageAt: 'desc' },
-    take: 20,
+    take: 100,
   })
+
+  const seenPhones = new Set<string>()
+  const recent = recentRaw.filter((c) => {
+    if (activePhones.has(c.customerPhone)) return false
+    if (seenPhones.has(c.customerPhone)) return false
+    seenPhones.add(c.customerPhone)
+    return true
+  }).slice(0, 20)
 
   return (
     <AtendimentoClient

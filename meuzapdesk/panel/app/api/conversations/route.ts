@@ -19,7 +19,7 @@ export async function GET() {
       messages: { orderBy: { sentAt: 'desc' }, take: 1 },
       alerts: true,
     },
-    orderBy: { lastCustomerMessageAt: 'asc' },
+    orderBy: { customerWaitingSince: 'asc' },
   })
 
   return NextResponse.json(conversations)
