@@ -15,6 +15,7 @@ type ConvSummary = {
   customerName: string | null
   customerAvatar: string | null
   status: string
+  unreadCount: number
   optionSelected: number | null
   lastCustomerMessageAt: string | null
   customerWaitingSince: string | null
@@ -362,7 +363,7 @@ export function AtendimentoClient({
   const isOwner = user.role === 'OWNER'
 
   const [conversations, setConversations] = useState<ConvSummary[]>(initial)
-  const [recentConversations] = useState<ConvSummary[]>(initialRecent)
+  const [recentConversations, setRecentConversations] = useState<ConvSummary[]>(initialRecent)
   const [search, setSearch] = useState('')
   const [selectedId, setSelectedId] = useState<number | null>(null)
   const [activeConv, setActiveConv] = useState<ConvDetail | null>(null)
@@ -400,6 +401,13 @@ export function AtendimentoClient({
     fetch('/api/conversations')
       .then((r) => r.json())
       .then((data) => setConversations(data))
+      .catch(() => {})
+  }, [])
+
+  const refreshRecent = useCallback(() => {
+    fetch('/api/conversations/recent')
+      .then((r) => r.json())
+      .then((data) => setRecentConversations(data))
       .catch(() => {})
   }, [])
 
@@ -461,6 +469,15 @@ export function AtendimentoClient({
     setSelectedId(null)
     setActiveConv(null)
     refreshList()
+    refreshRecent()
+  }
+
+  // Zera unread localmente ao abrir a conversa (o servidor zera no GET /api/conversations/:id)
+  function handleSelectConv(id: number) {
+    setSelectedId(id)
+    setConversations((prev) =>
+      prev.map((c) => (c.id === id ? { ...c, unreadCount: 0 } : c))
+    )
   }
 
   const filtered = conversations.filter((c) => {
@@ -548,11 +565,12 @@ export function AtendimentoClient({
                 const hasUrgent = conv.alerts.some((a) => a.alertLevel === 'urgent')
                 const hasWarn = conv.alerts.some((a) => a.alertLevel === 'warning')
                 const displayName = conv.customerName || conv.customerPhone
+                const hasUnread = conv.unreadCount > 0
 
                 return (
                   <button
                     key={conv.id}
-                    onClick={() => setSelectedId(conv.id)}
+                    onClick={() => handleSelectConv(conv.id)}
                     className={clsx(
                       'w-full text-left px-3 py-3 flex items-start gap-3 transition-colors border-b',
                       isSelected ? 'bg-gray-700' : 'hover:bg-gray-800',
@@ -573,27 +591,36 @@ export function AtendimentoClient({
 
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center justify-between gap-1">
-                        <p className="font-semibold text-sm text-gray-100 truncate">{displayName}</p>
-                        <span className="text-xs flex-shrink-0" style={{ color: '#8696a0' }}>
+                        <p className={clsx('text-sm truncate', hasUnread ? 'font-bold text-gray-100' : 'font-semibold text-gray-100')}>
+                          {displayName}
+                        </p>
+                        <span className="text-xs flex-shrink-0 font-medium" style={{ color: hasUnread ? '#25d366' : '#8696a0' }}>
                           {minutesAgo(conv.customerWaitingSince || conv.lastCustomerMessageAt)}
                         </span>
                       </div>
                       <div className="flex items-center justify-between gap-1 mt-0.5">
-                        <p className="text-xs truncate" style={{ color: '#8696a0' }}>
+                        <p className={clsx('text-xs truncate', hasUnread ? 'font-medium' : '')} style={{ color: hasUnread ? '#e9edef' : '#8696a0' }}>
                           {lastMsg
                             ? (lastMsg.direction === 'out' ? '↪ ' : '') + lastMsg.content
                             : STATUS_LABEL[conv.status] || conv.status}
                         </p>
-                        {hasUrgent && (
-                          <span className="flex-shrink-0 min-w-[18px] h-[18px] text-xs bg-red-500 text-white rounded-full flex items-center justify-center font-bold">
-                            !
-                          </span>
-                        )}
-                        {!hasUrgent && hasWarn && (
-                          <span className="flex-shrink-0 min-w-[18px] h-[18px] text-xs bg-yellow-500 text-white rounded-full flex items-center justify-center font-bold">
-                            !
-                          </span>
-                        )}
+                        <div className="flex items-center gap-1 flex-shrink-0">
+                          {hasUrgent && (
+                            <span className="min-w-[18px] h-[18px] text-xs bg-red-500 text-white rounded-full flex items-center justify-center font-bold">
+                              !
+                            </span>
+                          )}
+                          {!hasUrgent && hasWarn && (
+                            <span className="min-w-[18px] h-[18px] text-xs bg-yellow-500 text-white rounded-full flex items-center justify-center font-bold">
+                              !
+                            </span>
+                          )}
+                          {hasUnread && (
+                            <span className="min-w-[18px] h-[18px] px-1 text-xs text-white rounded-full flex items-center justify-center font-bold" style={{ background: '#25d366' }}>
+                              {conv.unreadCount > 99 ? '99+' : conv.unreadCount}
+                            </span>
+                          )}
+                        </div>
                       </div>
                       {conv.optionSelected && (
                         <p className="text-xs truncate mt-0.5" style={{ color: '#667781' }}>

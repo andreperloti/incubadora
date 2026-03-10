@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/db'
+import { getWahaContactAvatar } from '@/lib/whatsapp'
 
 export async function GET(
   _req: NextRequest,
@@ -24,6 +25,7 @@ export async function GET(
       },
       assignedUser: { select: { id: true, name: true } },
       alerts: true,
+      business: { select: { wahaSession: true } },
     },
   })
 
@@ -31,5 +33,22 @@ export async function GET(
     return NextResponse.json({ error: 'Conversa não encontrada' }, { status: 404 })
   }
 
-  return NextResponse.json(conversation)
+  const updates: Record<string, unknown> = { unreadCount: 0 }
+
+  // Busca avatar se ainda não tiver
+  if (!conversation.customerAvatar) {
+    const avatarUrl = await getWahaContactAvatar(conversation.business.wahaSession, conversation.customerPhone)
+    if (avatarUrl) updates.customerAvatar = avatarUrl
+  }
+
+  await prisma.conversation.update({ where: { id: conversationId }, data: updates })
+
+  const { business: _b, ...convData } = conversation
+  const result = {
+    ...convData,
+    unreadCount: 0,
+    customerAvatar: (updates.customerAvatar as string | undefined) ?? conversation.customerAvatar,
+  }
+
+  return NextResponse.json(result)
 }

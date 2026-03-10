@@ -47,6 +47,7 @@ model Conversation {
   customerPhone         String           @map("customer_phone")
   customerName          String?          @map("customer_name")
   customerAvatar        String?          @map("customer_avatar")
+  unreadCount           Int              @default(0) @map("unread_count")
   status                ConversationStatus @default(waiting_menu)
   optionSelected        Int?             @map("option_selected")
   priorityScore         Int              @default(0) @map("priority_score")

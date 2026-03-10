@@ -150,6 +150,7 @@ async function handleMessage({
         customerName,
         customerAvatar: avatarUrl,
         status: 'waiting_menu',
+        unreadCount: 1,
         lastCustomerMessageAt: waTimestamp,
         customerWaitingSince: waTimestamp,
       },
@@ -163,13 +164,13 @@ async function handleMessage({
       optionSelectedForReply = optionSelected
     }
 
-    // Atualiza avatar se ainda não tiver
     const updateData: any = {
       lastCustomerMessageAt: waTimestamp,
       status: wasWaitingMenu ? 'in_queue' : existing!.status,
       optionSelected,
       customerName,
       customerWaitingSince: existing!.customerWaitingSince ?? waTimestamp,
+      unreadCount: { increment: 1 },
     }
     if (avatarUrl && !existing!.customerAvatar) {
       updateData.customerAvatar = avatarUrl
