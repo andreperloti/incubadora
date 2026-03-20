@@ -94,7 +94,7 @@ export function UsersClient({ users: initial }: { users: User[] }) {
                         : 'bg-blue-900 text-blue-300'
                     }`}
                   >
-                    {user.role === 'OWNER' ? 'Admin' : 'Atendente'}
+                    {user.role === 'OWNER' ? 'Admin' : 'Operador'}
                   </span>
                 </td>
                 <td className="px-4 py-3">

@@ -35,8 +35,8 @@ export const authOptions: NextAuthOptions = {
           name: user.name,
           email: user.email,
           role: user.role,
-          businessId: String(user.businessId),
-          businessName: user.business.name,
+          businessId: user.businessId ? String(user.businessId) : null,
+          businessName: user.business?.name ?? 'Master Admin',
           image: gravatarUrl(user.email),
         }
       },

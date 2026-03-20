@@ -128,8 +128,8 @@ export function UserModal({ user, onClose, onSaved }: Props) {
               className={inputClass}
               style={inputStyle}
             >
-              <option value="MECHANIC">Atendente</option>
-              <option value="OWNER">Admin (Owner)</option>
+              <option value="MECHANIC">Operador</option>
+              <option value="OWNER">Admin</option>
             </select>
           </div>
 

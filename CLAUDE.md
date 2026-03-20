@@ -9,7 +9,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Common Commands
 
 ```bash
-# Start dev infrastructure (PostgreSQL:5433, Redis:6379, WAHA:3002)
+# Start dev infrastructure (PostgreSQL:5433, Redis:6379, WAHA:3002, n8n:5678)
 docker compose -f meuzapdesk/docker-compose.dev.yml up -d
 
 # Start panel (port 3000)
@@ -24,6 +24,13 @@ npx --prefix meuzapdesk/panel prisma generate
 # Apply raw SQL to the dev database (Prisma Migrate does not connect from host)
 docker exec meuzapdesk-postgres-1 psql -U meuzapdesk -d meuzapdesk_dev -c "SQL HERE"
 ```
+
+### Environment setup
+Copy `meuzapdesk/panel/.env.local.example` to `meuzapdesk/panel/.env.local`. Key variables:
+- `DATABASE_URL` — postgres on localhost:5433
+- `WAHA_API_URL` / `WAHA_API_KEY` / `WAHA_WEBHOOK_SECRET`
+- `WAHA_WEBHOOK_BASE_URL=http://host.docker.internal:3000` — used by WAHA (inside Docker) to reach the panel on the host
+- `ALERT_WARN_MINUTES` / `ALERT_URGENT_MINUTES` — SLA thresholds for conversation alerts
 
 > **CRITICAL:** Never run `npm run build` while the dev server is active. The build overwrites chunks referenced by the dev server, corrupting the cache (symptom: CSS disappears). Fix: `rm -rf meuzapdesk/panel/.next` then restart the dev server.
 
@@ -43,6 +50,19 @@ Each `Business` has a `wahaSession` string (the WAHA session name). All Prisma q
 `lib/sse.ts` maintains an in-memory Map of connected clients per process. The webhook and the messages API call `broadcastToBusinessClients(businessId, payload)` after DB writes. The client (`AtendimentoClient.tsx`) connects to `/api/sse` on mount and listens for `new_message` events to update the conversation list and chat in real time.
 
 > SSE clients are stored in-memory per process — not compatible with multi-instance deployments. For production scale, this must be migrated to Redis Pub/Sub.
+
+### n8n (workflow automation)
+n8n runs on port 5678 with basic auth disabled. It has access to the host via `host.docker.internal` and is intended for automation workflows that integrate with the panel (e.g. calling internal API routes). Data is persisted in the `n8n_dev_data` Docker volume.
+
+### SLA alerts (`ConversationAlert`)
+The `ConversationAlert` model tracks how long a conversation has been waiting. Two alert levels are configured via env vars (`ALERT_WARN_MINUTES`, `ALERT_URGENT_MINUTES`). Each conversation can have at most one alert per level (unique constraint on `conversationId + alertLevel`).
+
+### Bot (internal routes)
+Two internal routes handle the automated menu bot:
+- `/api/internal/bot-message` — processes customer input and decides bot response
+- `/api/internal/bot-send` — sends the bot reply via WAHA
+
+These are called internally from the webhook handler, not by the client.
 
 ### Message flow
 
@@ -97,6 +117,15 @@ Prisma Migrate is not run directly from the host (the DB is inside Docker). Work
 | `panel/app/atendimento/AtendimentoClient.tsx` | Main UI: queue sidebar + chat |
 | `panel/app/api/webhook/whatsapp/route.ts` | WAHA webhook entry point |
 | `panel/app/api/messages/route.ts` | Human agent send message |
+| `panel/app/api/conversations/[id]/route.ts` | Get/update conversation (also syncs avatar + real phone) |
+| `panel/app/api/conversations/[id]/resolve/route.ts` | Resolve conversation |
+| `panel/app/api/conversations/recent/route.ts` | Recent resolved conversations |
+| `panel/app/api/admin/waha/route.ts` | WAHA session management |
+| `panel/app/api/admin/waha/qr/route.ts` | QR code for WhatsApp pairing |
+| `panel/app/api/admin/import-history/route.ts` | Import chat history from WAHA |
+| `panel/app/api/dashboard/metrics/route.ts` | Business metrics |
+| `panel/app/api/internal/bot-message/route.ts` | Bot decision logic |
+| `panel/app/api/internal/bot-send/route.ts` | Bot sends reply via WAHA |
 
 ### UI theme (WhatsApp dark mode)
 | Element | Color |

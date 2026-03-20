@@ -22,14 +22,14 @@ model Business {
 
 model User {
   id           Int            @id @default(autoincrement())
-  businessId   Int            @map("business_id")
+  businessId   Int?           @map("business_id")
   name         String
   email        String         @unique
   passwordHash String         @map("password_hash")
   role         UserRole       @default(MECHANIC)
   active       Boolean        @default(true)
   createdAt    DateTime       @default(now()) @map("created_at")
-  business     Business       @relation(fields: [businessId], references: [id])
+  business     Business?      @relation(fields: [businessId], references: [id])
   conversations Conversation[] @relation("AssignedConversations")
   messages     Message[]
 
@@ -39,6 +39,7 @@ model User {
 enum UserRole {
   OWNER
   MECHANIC
+  SUPER_ADMIN
 }
 
 model Conversation {
