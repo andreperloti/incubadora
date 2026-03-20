@@ -46,6 +46,8 @@ Copy `meuzapdesk/panel/.env.local.example` to `meuzapdesk/panel/.env.local`. Key
 ### Multi-tenancy
 Each `Business` has a `wahaSession` string (the WAHA session name). All Prisma queries are scoped by `businessId` extracted from the session token. The webhook route resolves the business by matching `body.session` against `wahaSession`.
 
+SUPER_ADMIN manages all businesses via `/master` and is the only role with `businessId = null`. Companies and their users are created exclusively through the master panel — there is no self-signup flow.
+
 ### Real-time updates (SSE)
 `lib/sse.ts` maintains an in-memory Map of connected clients per process. The webhook and the messages API call `broadcastToBusinessClients(businessId, payload)` after DB writes. The client (`AtendimentoClient.tsx`) connects to `/api/sse` on mount and listens for `new_message` events to update the conversation list and chat in real time.
 
@@ -85,11 +87,20 @@ The sidebar sorts active conversations by `customerWaitingSince ASC` (NULLs last
 - Is **preserved** when the customer sends follow-up messages or the bot replies (so queue position is not lost)
 - Is reset to `null` when a human agent sends a message
 
-### Authorization
+### Roles
+| Role | UI label | Access |
+|------|----------|--------|
+| `SUPER_ADMIN` | — | `/master/*` only; no `businessId`; manages all companies |
+| `OWNER` | Admin | `/admin/*`, `/dashboard/*`, `/atendimento` |
+| `MECHANIC` | Operador | `/atendimento` only |
+
 `middleware.ts` uses `withAuth` from NextAuth:
-- `/admin/*` → OWNER only (redirects to `/atendimento`)
-- `/dashboard/*` → OWNER only
+- `/master/*` → SUPER_ADMIN only
+- `/admin/*`, `/dashboard/*` → OWNER only (redirects to `/atendimento`)
+- `/atendimento` → OWNER or MECHANIC (SUPER_ADMIN redirected to `/master`)
 - All other protected routes → any authenticated user
+
+`businessId` is nullable in the schema — SUPER_ADMIN has no associated business. All regular Prisma queries must be scoped by `businessId` from the session.
 
 ### Outgoing message format
 `buildSignedMessage` in `lib/whatsapp.ts` produces:
@@ -115,6 +126,11 @@ Prisma Migrate is not run directly from the host (the DB is inside Docker). Work
 | `panel/middleware.ts` | Route protection by role |
 | `panel/components/LeftNavStrip.tsx` | Shared left nav (used by all pages) |
 | `panel/app/atendimento/AtendimentoClient.tsx` | Main UI: queue sidebar + chat |
+| `panel/app/master/MasterDashboardClient.tsx` | SUPER_ADMIN: company listing + creation |
+| `panel/app/master/businesses/[id]/BusinessDetailClient.tsx` | SUPER_ADMIN: company detail + user management |
+| `panel/app/api/master/businesses/route.ts` | SUPER_ADMIN: list/create companies |
+| `panel/app/api/master/businesses/[id]/route.ts` | SUPER_ADMIN: get/update/delete company |
+| `panel/app/api/master/businesses/[id]/users/route.ts` | SUPER_ADMIN: list/create users per company |
 | `panel/app/api/webhook/whatsapp/route.ts` | WAHA webhook entry point |
 | `panel/app/api/messages/route.ts` | Human agent send message |
 | `panel/app/api/conversations/[id]/route.ts` | Get/update conversation (also syncs avatar + real phone) |

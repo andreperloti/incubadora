@@ -447,6 +447,29 @@ export function AtendimentoClient({
       .catch(() => {})
   }, [])
 
+  // Sync automático do histórico WAHA ao montar — apenas OWNER, throttle 5 min
+  useEffect(() => {
+    if (!isOwner) return
+    const THROTTLE_KEY = 'waha_sync_last'
+    const THROTTLE_MS = 5 * 60 * 1000
+    const last = parseInt(localStorage.getItem(THROTTLE_KEY) ?? '0', 10)
+    if (Date.now() - last < THROTTLE_MS) return
+    localStorage.setItem(THROTTLE_KEY, String(Date.now()))
+    fetch('/api/admin/import-history', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ chatsLimit: 30, messagesPerChat: 100 }),
+    })
+      .then((r) => r.ok ? r.json() : null)
+      .then((data) => {
+        if (data?.imported?.conversations > 0 || data?.imported?.messages > 0) {
+          refreshList()
+          refreshRecent()
+        }
+      })
+      .catch(() => {})
+  }, [isOwner, refreshList, refreshRecent])
+
   useEffect(() => {
     let es: EventSource
     let closed = false
