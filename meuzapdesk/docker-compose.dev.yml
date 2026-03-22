@@ -31,17 +31,22 @@ services:
       - redis_dev_data:/data
 
   waha:
-    image: devlikeapro/waha:latest
-    platform: linux/amd64
+    image: devlikeapro/waha-plus:noweb-arm
     restart: unless-stopped
     ports:
       - "3002:3000"
     environment:
       - WAHA_API_KEY=${WAHA_API_KEY:-dev-waha-key}
+      - WAHA_DASHBOARD_ENABLED=true
+      - WHATSAPP_SWAGGER_USERNAME=${WAHA_DASHBOARD_USERNAME:-admin}
+      - WHATSAPP_SWAGGER_PASSWORD=${WAHA_DASHBOARD_PASSWORD:-admin}
       - WAHA_LOG_LEVEL=info
       - TZ=America/Sao_Paulo
+      - WHATSAPP_FILES_FOLDER=/app/.media
+      - WHATSAPP_FILES_LIFETIME=0
     volumes:
       - waha_dev_data:/app/sessions
+      - waha_dev_media:/app/.media
 
   n8n:
     image: n8nio/n8n:latest
@@ -64,4 +69,5 @@ volumes:
   pg_dev_data:
   redis_dev_data:
   waha_dev_data:
+  waha_dev_media:
   n8n_dev_data:
