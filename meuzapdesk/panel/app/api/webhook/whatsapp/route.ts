@@ -114,7 +114,7 @@ async function handleMessage({
     [phone, rawChatId, parsePhoneFromContactName(customerName)].filter(Boolean) as string[]
   ))
 
-  // Verifica se já existe conversa aberta (por phone, @lid ou número real extraído do nome)
+  // Busca conversa existente: primeiro aberta, depois resolvida (para reabrir)
   const activeConversations = await prisma.conversation.findMany({
     where: {
       businessId: business.id,
@@ -124,7 +124,7 @@ async function handleMessage({
     orderBy: { createdAt: 'desc' },
   })
 
-  // Se houver duplicatas, resolve as mais antigas automaticamente
+  // Se houver duplicatas abertas, resolve as mais antigas automaticamente
   if (activeConversations.length > 1) {
     const idsToResolve = activeConversations.slice(1).map((c) => c.id)
     await prisma.conversation.updateMany({
@@ -133,9 +133,20 @@ async function handleMessage({
     })
   }
 
-  const existing = activeConversations[0] ?? null
+  // Se não tem conversa aberta, tenta encontrar a mais recente resolvida para reabrir
+  let existing = activeConversations[0] ?? null
+  if (!existing) {
+    existing = await prisma.conversation.findFirst({
+      where: {
+        businessId: business.id,
+        customerPhone: { in: phoneAliases },
+        status: 'resolved',
+      },
+      orderBy: { createdAt: 'desc' },
+    })
+  }
 
-  const isNew = !existing
+  let isNew = !existing
   let optionSelectedForReply: number | null = null
   let conversation: any = existing
 
@@ -160,21 +171,32 @@ async function handleMessage({
       },
     })
   } else {
+    const wasResolved = existing!.status === 'resolved'
     const wasWaitingMenu = existing!.status === 'waiting_menu'
     const isOptionSelection = wasWaitingMenu && ['1', '2', '3', '4'].includes(text.trim())
-    const optionSelected = isOptionSelection ? parseInt(text.trim()) : existing!.optionSelected
+    const optionSelected = isOptionSelection ? parseInt(text.trim()) : (wasResolved ? null : existing!.optionSelected)
 
     if (isOptionSelection) {
       optionSelectedForReply = optionSelected
     }
 
+    // Determina o novo status
+    let newStatus = existing!.status
+    if (wasResolved) {
+      newStatus = 'waiting_menu'
+      isNew = true // dispara menu de boas-vindas
+    } else if (wasWaitingMenu) {
+      newStatus = isOptionSelection ? 'in_queue' : 'waiting_menu'
+    }
+
     const updateData: any = {
       lastCustomerMessageAt: waTimestamp,
-      status: wasWaitingMenu ? 'in_queue' : existing!.status,
+      status: newStatus,
       optionSelected,
       customerName,
-      customerWaitingSince: existing!.customerWaitingSince ?? waTimestamp,
-      unreadCount: { increment: 1 },
+      customerWaitingSince: wasResolved ? waTimestamp : (existing!.customerWaitingSince ?? waTimestamp),
+      resolvedAt: wasResolved ? null : existing!.resolvedAt,
+      unreadCount: wasResolved ? 1 : { increment: 1 },
     }
     if (avatarUrl && !existing!.customerAvatar) updateData.customerAvatar = avatarUrl
     if (realPhone && !existing!.customerRealPhone) updateData.customerRealPhone = realPhone

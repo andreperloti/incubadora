@@ -45,14 +45,10 @@ export default async function AtendimentoPage() {
     }
   }
 
-  // Últimas conversas resolvidas dos últimos 7 dias (histórico recente)
-  const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000)
-
   const recentRaw = await prisma.conversation.findMany({
     where: {
       businessId,
       status: 'resolved',
-      lastCustomerMessageAt: { gte: sevenDaysAgo },
     },
     include,
     orderBy: { lastCustomerMessageAt: 'desc' },
