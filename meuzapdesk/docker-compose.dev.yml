@@ -31,7 +31,8 @@ services:
       - redis_dev_data:/data
 
   waha:
-    image: devlikeapro/waha-plus:noweb-arm
+    image: devlikeapro/waha-plus:chrome
+    platform: linux/amd64
     restart: unless-stopped
     ports:
       - "3002:3000"
@@ -60,6 +61,8 @@ services:
       - WEBHOOK_URL=http://localhost:5678
       - GENERIC_TIMEZONE=America/Sao_Paulo
       - N8N_BASIC_AUTH_ACTIVE=false
+      - INTERNAL_API_SECRET=${INTERNAL_API_SECRET:-dev-internal-secret}
+      - N8N_RUNNERS_TASK_ENV_ALLOWED=INTERNAL_API_SECRET
     extra_hosts:
       - "host.docker.internal:host-gateway"
     volumes:

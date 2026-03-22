@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useRef } from 'react'
 
 type SessionStatus = 'STOPPED' | 'STARTING' | 'SCAN_QR_CODE' | 'WORKING' | 'FAILED' | 'loading'
 
@@ -8,6 +8,12 @@ type SessionInfo = {
   sessionName: string
   status: SessionStatus
   me: { id: string; pushName: string } | null
+}
+
+type ImportProgress = {
+  current: number
+  total: number
+  chatName: string
 }
 
 const STATUS_CONFIG: Record<string, { label: string; textColor: string; bg: string; icon: string }> = {
@@ -24,9 +30,12 @@ export default function WhatsAppSetupPage() {
   const [qr, setQr] = useState<string | null>(null)
   const [actionLoading, setActionLoading] = useState(false)
   const [error, setError] = useState('')
-  const [importLoading, setImportLoading] = useState(false)
+  const [importProgress, setImportProgress] = useState<ImportProgress | null>(null)
+  const [importStatus, setImportStatus] = useState<string>('')
   const [importResult, setImportResult] = useState<{ conversations: number; messages: number } | null>(null)
   const [importError, setImportError] = useState('')
+  const importTriggeredRef = useRef(false)
+  const prevStatusRef = useRef<SessionStatus | null>(null)
 
   const fetchStatus = useCallback(async () => {
     const res = await fetch('/api/admin/waha')
@@ -41,6 +50,76 @@ export default function WhatsAppSetupPage() {
     if (res.ok) {
       const data = await res.json()
       setQr(data.qr)
+    }
+  }, [])
+
+  const startImport = useCallback(async () => {
+    if (importTriggeredRef.current) return
+    importTriggeredRef.current = true
+    setImportProgress(null)
+    setImportResult(null)
+    setImportError('')
+    setImportStatus('Iniciando importação...')
+
+    try {
+      const res = await fetch('/api/admin/import-history', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ chatsLimit: 50, messagesPerChat: 100 }),
+      })
+
+      if (!res.ok || !res.body) {
+        setImportError('Erro ao iniciar importação')
+        importTriggeredRef.current = false
+        return
+      }
+
+      const reader = res.body.getReader()
+      const decoder = new TextDecoder()
+      let buffer = ''
+
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+
+        buffer += decoder.decode(value, { stream: true })
+        const lines = buffer.split('\n\n')
+        buffer = lines.pop() || ''
+
+        for (const line of lines) {
+          const match = line.match(/^data: (.+)$/)
+          if (!match) continue
+          try {
+            const data = JSON.parse(match[1])
+            switch (data.type) {
+              case 'status':
+                setImportStatus(data.message)
+                break
+              case 'total':
+                setImportStatus(`Encontradas ${data.total} conversas`)
+                break
+              case 'progress':
+                setImportProgress({ current: data.current, total: data.total, chatName: data.chatName })
+                setImportStatus(`Importando conversa ${data.current}/${data.total}`)
+                break
+              case 'done':
+                setImportResult(data.imported)
+                setImportProgress(null)
+                setImportStatus('')
+                break
+              case 'error':
+                setImportError(data.message)
+                setImportProgress(null)
+                setImportStatus('')
+                break
+            }
+          } catch {}
+        }
+      }
+    } catch {
+      setImportError('Erro de conexão')
+    } finally {
+      importTriggeredRef.current = false
     }
   }, [])
 
@@ -60,28 +139,16 @@ export default function WhatsAppSetupPage() {
     return () => clearInterval(interval)
   }, [info?.status, fetchQr])
 
-  async function handleImportHistory() {
-    setImportLoading(true)
-    setImportError('')
-    setImportResult(null)
-    try {
-      const res = await fetch('/api/admin/import-history', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ chatsLimit: 50, messagesPerChat: 100 }),
-      })
-      const data = await res.json()
-      if (!res.ok) {
-        setImportError(data.error ?? 'Erro ao importar histórico')
-      } else {
-        setImportResult(data.imported)
-      }
-    } catch {
-      setImportError('Erro de conexão')
-    } finally {
-      setImportLoading(false)
+  // Auto-import quando transita para WORKING (acabou de conectar)
+  useEffect(() => {
+    const prev = prevStatusRef.current
+    const current = info?.status
+    prevStatusRef.current = current ?? null
+
+    if (prev && prev !== 'WORKING' && current === 'WORKING') {
+      startImport()
     }
-  }
+  }, [info?.status, startImport])
 
   async function handleAction(action: 'start' | 'stop') {
     setActionLoading(true)
@@ -107,6 +174,7 @@ export default function WhatsAppSetupPage() {
 
   const status = info?.status ?? 'loading'
   const cfg = STATUS_CONFIG[status] ?? STATUS_CONFIG.loading
+  const isImporting = !!importProgress || !!importStatus
 
   return (
     <div className="max-w-xl">
@@ -233,19 +301,49 @@ export default function WhatsAppSetupPage() {
         </div>
       )}
 
-      {/* Importar histórico */}
+      {/* Importação de histórico (automática + manual) */}
       {status === 'WORKING' && (
         <div
           className="rounded-xl p-6 mt-6"
           style={{ background: '#202c33', border: '1px solid #2a3942' }}
         >
           <p className="text-sm font-semibold mb-1" style={{ color: '#e9edef' }}>
-            Importar histórico de conversas
+            Sincronização de conversas
           </p>
           <p className="text-xs mb-4" style={{ color: '#8696a0' }}>
-            Importa as últimas 20 conversas individuais do WhatsApp para o histórico do painel.
-            Mensagens já importadas são ignoradas automaticamente.
+            As conversas do WhatsApp são importadas automaticamente ao conectar.
+            Mensagens já importadas são ignoradas.
           </p>
+
+          {/* Progress bar */}
+          {isImporting && (
+            <div className="mb-4">
+              <div className="flex items-center justify-between mb-2">
+                <p className="text-xs font-semibold" style={{ color: '#e9edef' }}>{importStatus}</p>
+                {importProgress && (
+                  <span className="text-xs font-mono" style={{ color: '#53bdeb' }}>
+                    {importProgress.current}/{importProgress.total}
+                  </span>
+                )}
+              </div>
+              {importProgress && (
+                <>
+                  <div className="w-full rounded-full h-2" style={{ background: '#2a3942' }}>
+                    <div
+                      className="h-2 rounded-full transition-all duration-300"
+                      style={{
+                        width: `${(importProgress.current / importProgress.total) * 100}%`,
+                        background: '#00a884',
+                      }}
+                    />
+                  </div>
+                  <p className="text-xs mt-2 truncate" style={{ color: '#8696a0' }}>
+                    {importProgress.chatName}
+                  </p>
+                </>
+              )}
+            </div>
+          )}
 
           {importResult && (
             <div
@@ -263,13 +361,15 @@ export default function WhatsAppSetupPage() {
             </p>
           )}
 
-          <button
-            onClick={handleImportHistory}
-            disabled={importLoading}
-            className="bg-green-600 hover:bg-green-700 text-white text-sm font-semibold px-5 py-2 rounded-lg transition disabled:opacity-60"
-          >
-            {importLoading ? '⏳ Importando...' : '📥 Importar histórico'}
-          </button>
+          {!isImporting && (
+            <button
+              onClick={startImport}
+              className="text-sm font-semibold px-5 py-2 rounded-lg transition"
+              style={{ border: '1px solid #00a884', color: '#00a884' }}
+            >
+              🔄 Reimportar conversas
+            </button>
+          )}
         </div>
       )}
     </div>

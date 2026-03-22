@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from 'next/server'
+import { NextRequest } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/db'
@@ -11,7 +11,6 @@ function wahaHeaders() {
   return { 'Content-Type': 'application/json', 'X-Api-Key': WAHA_API_KEY }
 }
 
-// Normaliza IDs do WAHA — podem ser string ou objeto {_serialized, user, server}
 function extractId(id: unknown): string {
   if (typeof id === 'string') return id
   if (typeof id === 'object' && id !== null) {
@@ -21,24 +20,20 @@ function extractId(id: unknown): string {
   return ''
 }
 
-// Dado um chatId (ex: "5511999@c.us" ou "12345@lid") e o nome do chat,
-// retorna o valor a usar como customerPhone no banco.
-// Para @c.us: número puro. Para @lid: tenta extrair de name, senão usa o @lid.
 function resolveCustomerPhone(chatId: string, chatName: string): string {
   if (chatId.endsWith('@c.us')) {
     return chatId.replace('@c.us', '')
   }
-  // @lid: tenta usar o número contido no nome
   const phoneFromName = parsePhoneFromContactName(chatName)
   return phoneFromName ?? chatId
 }
 
 export async function POST(req: NextRequest) {
   const session = await getServerSession(authOptions)
-  if (!session) return NextResponse.json({ error: 'Não autorizado' }, { status: 401 })
+  if (!session) return new Response('Unauthorized', { status: 401 })
 
   const user = session.user as any
-  if (user.role !== 'OWNER') return NextResponse.json({ error: 'Acesso negado' }, { status: 403 })
+  if (user.role !== 'OWNER') return new Response('Forbidden', { status: 403 })
 
   const businessId = parseInt(user.businessId)
 
@@ -46,143 +41,197 @@ export async function POST(req: NextRequest) {
   const chatsLimit = Math.min(body.chatsLimit ?? 20, 50)
   const messagesPerChat = Math.min(body.messagesPerChat ?? 100, 300)
 
-  // Busca sessão WAHA do negócio
   const business = await prisma.business.findUnique({ where: { id: businessId } })
   if (!business?.wahaSession) {
-    return NextResponse.json({ error: 'Sessão WAHA não configurada' }, { status: 400 })
+    return new Response(JSON.stringify({ error: 'Sessão WAHA não configurada' }), {
+      status: 400,
+      headers: { 'Content-Type': 'application/json' },
+    })
   }
 
   const wahaSession = business.wahaSession
 
-  // Usa chats/overview que retorna tanto @c.us quanto @lid com nome e última mensagem
-  const chatsRes = await fetch(
-    `${WAHA_API_URL}/api/${wahaSession}/chats/overview?limit=${chatsLimit}`,
-    { headers: wahaHeaders() }
-  ).catch(() => null)
-
-  // Fallback para endpoint /chats se overview não existir
-  const fallbackRes = chatsRes?.ok ? null : await fetch(
-    `${WAHA_API_URL}/api/${wahaSession}/chats?limit=${chatsLimit}`,
-    { headers: wahaHeaders() }
-  ).catch(() => null)
-
-  const activeRes = chatsRes?.ok ? chatsRes : fallbackRes
-
-  if (!activeRes?.ok) {
-    return NextResponse.json(
-      { error: 'Erro ao buscar conversas do WAHA. Verifique se o WhatsApp está conectado.' },
-      { status: 502 }
-    )
-  }
-
-  const chatsData = await activeRes.json()
-  const allChats: any[] = Array.isArray(chatsData) ? chatsData : (chatsData.chats ?? [])
-
-  // Filtra apenas chats individuais (exclui grupos, broadcasts e o próprio WhatsApp Business)
-  const individualChats = allChats
-    .filter((c: any) => {
-      const id = extractId(c.id)
-      if (c.isGroup || c.isBroadcast) return false
-      if (id === '0@c.us' || id.endsWith('@broadcast') || id.endsWith('@newsletter')) return false
-      return id.endsWith('@c.us') || id.endsWith('@lid')
-    })
-    .slice(0, chatsLimit)
-
-  let importedConversations = 0
-  let importedMessages = 0
-  let skippedChats = 0
-
-  for (const chat of individualChats) {
-    const chatId = extractId(chat.id)
-    const chatName = chat.name || chat.displayName || ''
-    const customerPhone = resolveCustomerPhone(chatId, chatName)
-    const customerName = chatName || customerPhone
-
-    // Busca mensagens do chat
-    const msgsRes = await fetch(
-      `${WAHA_API_URL}/api/${wahaSession}/chats/${encodeURIComponent(chatId)}/messages?limit=${messagesPerChat}&downloadMedia=false`,
-      { headers: wahaHeaders() }
-    ).catch(() => null)
-
-    if (!msgsRes?.ok) {
-      skippedChats++
-      continue
-    }
-
-    const msgsData = await msgsRes.json()
-    const messages: any[] = Array.isArray(msgsData) ? msgsData : (msgsData.messages ?? [])
-
-    // Ignora chats sem mensagens de texto
-    const textMessages = messages.filter((m: any) => m.body && String(m.body).trim())
-    if (textMessages.length === 0) {
-      skippedChats++
-      continue
-    }
-
-    // Ordena por timestamp crescente
-    textMessages.sort((a: any, b: any) => (a.timestamp ?? 0) - (b.timestamp ?? 0))
-
-    const lastMsg = textMessages[textMessages.length - 1]
-    const lastMsgAt = lastMsg.timestamp ? new Date(lastMsg.timestamp * 1000) : new Date()
-
-    // Verifica se já existe conversa — busca tanto pelo phone quanto pelo @lid
-    const searchPhones = Array.from(new Set([customerPhone, chatId].filter(Boolean)))
-    let conversation = await prisma.conversation.findFirst({
-      where: { businessId, customerPhone: { in: searchPhones } },
-      orderBy: { createdAt: 'desc' },
-    })
-
-    if (!conversation) {
-      conversation = await prisma.conversation.create({
-        data: {
-          businessId,
-          customerPhone,
-          customerName,
-          status: 'resolved',
-          lastCustomerMessageAt: lastMsgAt,
-          resolvedAt: new Date(),
-        },
-      })
-      importedConversations++
-    } else {
-      // Atualiza nome se estava vazio ou era o próprio phone
-      if (!conversation.customerName || conversation.customerName === conversation.customerPhone) {
-        await prisma.conversation.update({
-          where: { id: conversation.id },
-          data: { customerName },
-        })
+  const encoder = new TextEncoder()
+  const stream = new ReadableStream({
+    async start(controller) {
+      function send(data: object) {
+        controller.enqueue(encoder.encode(`data: ${JSON.stringify(data)}\n\n`))
       }
-    }
 
-    // Carrega IDs já existentes para evitar duplicatas
-    const existing = await prisma.message.findMany({
-      where: { conversationId: conversation.id },
-      select: { waMessageId: true },
-    })
-    const existingIds = new Set(existing.map((m) => m.waMessageId).filter(Boolean))
+      try {
+        // Verifica se o número conectado mudou
+        send({ type: 'status', message: 'Verificando número conectado...' })
+        const sessionRes = await fetch(
+          `${WAHA_API_URL}/api/sessions/${wahaSession}`,
+          { headers: wahaHeaders() }
+        ).catch(() => null)
 
-    // Salva as mensagens novas
-    for (const msg of textMessages) {
-      const waMessageId = extractId(msg.id)
-      if (!waMessageId || existingIds.has(waMessageId)) continue
+        if (sessionRes?.ok) {
+          const sessionData = await sessionRes.json()
+          const connectedPhone = sessionData?.me?.id?.replace('@c.us', '') || ''
 
-      await prisma.message.create({
-        data: {
-          conversationId: conversation.id,
-          direction: msg.fromMe ? 'out' : 'in',
-          content: String(msg.body),
-          waMessageId,
-          sentAt: msg.timestamp ? new Date(msg.timestamp * 1000) : new Date(),
-        },
-      })
-      importedMessages++
-    }
-  }
+          if (connectedPhone && connectedPhone !== business.whatsappNumber) {
+            send({ type: 'status', message: `Número alterado para ${connectedPhone}. Limpando conversas anteriores...` })
 
-  return NextResponse.json({
-    success: true,
-    imported: { conversations: importedConversations, messages: importedMessages },
-    skippedChats,
-    totalChatsProcessed: individualChats.length,
+            // Limpa conversas e mensagens antigas do business
+            await prisma.message.deleteMany({
+              where: { conversation: { businessId } },
+            })
+            await prisma.conversationAlert.deleteMany({
+              where: { conversation: { businessId } },
+            })
+            await prisma.conversation.deleteMany({
+              where: { businessId },
+            })
+
+            // Atualiza o número do business
+            await prisma.business.update({
+              where: { id: businessId },
+              data: { whatsappNumber: connectedPhone },
+            })
+          }
+        }
+
+        send({ type: 'status', message: 'Buscando conversas do WhatsApp...' })
+
+        const chatsRes = await fetch(
+          `${WAHA_API_URL}/api/${wahaSession}/chats/overview?limit=${chatsLimit}`,
+          { headers: wahaHeaders() }
+        ).catch(() => null)
+
+        const fallbackRes = chatsRes?.ok ? null : await fetch(
+          `${WAHA_API_URL}/api/${wahaSession}/chats?limit=${chatsLimit}`,
+          { headers: wahaHeaders() }
+        ).catch(() => null)
+
+        const activeRes = chatsRes?.ok ? chatsRes : fallbackRes
+
+        if (!activeRes?.ok) {
+          send({ type: 'error', message: 'Erro ao buscar conversas do WAHA. Verifique se o WhatsApp está conectado.' })
+          controller.close()
+          return
+        }
+
+        const chatsData = await activeRes.json()
+        const allChats: any[] = Array.isArray(chatsData) ? chatsData : (chatsData.chats ?? [])
+
+        const individualChats = allChats
+          .filter((c: any) => {
+            const id = extractId(c.id)
+            if (c.isGroup || c.isBroadcast) return false
+            if (id === '0@c.us' || id.endsWith('@broadcast') || id.endsWith('@newsletter')) return false
+            return id.endsWith('@c.us') || id.endsWith('@lid')
+          })
+          .slice(0, chatsLimit)
+
+        const total = individualChats.length
+        send({ type: 'total', total })
+
+        let importedConversations = 0
+        let importedMessages = 0
+
+        for (let i = 0; i < individualChats.length; i++) {
+          const chat = individualChats[i]
+          const chatId = extractId(chat.id)
+          const chatName = chat.name || chat.displayName || ''
+          const customerPhone = resolveCustomerPhone(chatId, chatName)
+          const customerName = chatName || customerPhone
+
+          send({
+            type: 'progress',
+            current: i + 1,
+            total,
+            chatName: customerName,
+          })
+
+          const msgsRes = await fetch(
+            `${WAHA_API_URL}/api/${wahaSession}/chats/${encodeURIComponent(chatId)}/messages?limit=${messagesPerChat}&downloadMedia=false`,
+            { headers: wahaHeaders() }
+          ).catch(() => null)
+
+          if (!msgsRes?.ok) continue
+
+          const msgsData = await msgsRes.json()
+          const messages: any[] = Array.isArray(msgsData) ? msgsData : (msgsData.messages ?? [])
+
+          const textMessages = messages.filter((m: any) => m.body && String(m.body).trim())
+          if (textMessages.length === 0) continue
+
+          textMessages.sort((a: any, b: any) => (a.timestamp ?? 0) - (b.timestamp ?? 0))
+
+          const lastMsg = textMessages[textMessages.length - 1]
+          const lastMsgAt = lastMsg.timestamp ? new Date(lastMsg.timestamp * 1000) : new Date()
+
+          const searchPhones = Array.from(new Set([customerPhone, chatId].filter(Boolean)))
+          let conversation = await prisma.conversation.findFirst({
+            where: { businessId, customerPhone: { in: searchPhones } },
+            orderBy: { createdAt: 'desc' },
+          })
+
+          if (!conversation) {
+            conversation = await prisma.conversation.create({
+              data: {
+                businessId,
+                customerPhone,
+                customerName,
+                status: 'resolved',
+                lastCustomerMessageAt: lastMsgAt,
+                resolvedAt: new Date(),
+              },
+            })
+            importedConversations++
+          } else {
+            if (!conversation.customerName || conversation.customerName === conversation.customerPhone) {
+              await prisma.conversation.update({
+                where: { id: conversation.id },
+                data: { customerName },
+              })
+            }
+          }
+
+          const existing = await prisma.message.findMany({
+            where: { conversationId: conversation.id },
+            select: { waMessageId: true },
+          })
+          const existingIds = new Set(existing.map((m) => m.waMessageId).filter(Boolean))
+
+          let chatMessages = 0
+          for (const msg of textMessages) {
+            const waMessageId = extractId(msg.id)
+            if (!waMessageId || existingIds.has(waMessageId)) continue
+
+            await prisma.message.create({
+              data: {
+                conversationId: conversation.id,
+                direction: msg.fromMe ? 'out' : 'in',
+                content: String(msg.body),
+                waMessageId,
+                sentAt: msg.timestamp ? new Date(msg.timestamp * 1000) : new Date(),
+              },
+            })
+            chatMessages++
+            importedMessages++
+          }
+        }
+
+        send({
+          type: 'done',
+          imported: { conversations: importedConversations, messages: importedMessages },
+          totalChatsProcessed: total,
+        })
+      } catch (err) {
+        send({ type: 'error', message: String(err) })
+      } finally {
+        controller.close()
+      }
+    },
+  })
+
+  return new Response(stream, {
+    headers: {
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache',
+      Connection: 'keep-alive',
+    },
   })
 }
