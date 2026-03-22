@@ -61,6 +61,20 @@ export async function POST(req: NextRequest) {
 
   if (action === 'stop') {
     const ok = await stopWahaSession(sessionName)
+
+    // Limpa conversas e mensagens ao desconectar
+    if (ok) {
+      await prisma.message.deleteMany({
+        where: { conversation: { businessId } },
+      })
+      await prisma.conversationAlert.deleteMany({
+        where: { conversation: { businessId } },
+      })
+      await prisma.conversation.deleteMany({
+        where: { businessId },
+      })
+    }
+
     return NextResponse.json({ success: ok })
   }
 
