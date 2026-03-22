@@ -168,11 +168,12 @@ export async function startWahaSession(session: string): Promise<boolean> {
 
 export async function stopWahaSession(session: string): Promise<boolean> {
   try {
-    const res = await fetch(`${WAHA_API_URL}/api/sessions/${session}/stop`, {
-      method: 'POST',
+    // Deleta a sessão por completo para forçar novo QR ao reconectar
+    const res = await fetch(`${WAHA_API_URL}/api/sessions/${session}`, {
+      method: 'DELETE',
       headers: wahaHeaders(),
     })
-    return res.ok
+    return res.ok || res.status === 404
   } catch {
     return false
   }
