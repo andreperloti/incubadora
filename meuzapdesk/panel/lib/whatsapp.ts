@@ -118,6 +118,53 @@ export async function sendMenuButtons(
   }
 }
 
+export const POLL_OPTIONS = [
+  '🔧 Orçamento (peças/serviço)',
+  '🔍 Orçamento (diagnóstico)',
+  '📋 Status do meu serviço',
+  '📦 Fornecedores e outros',
+]
+
+export function buildMenuPoll(businessName: string) {
+  return {
+    poll: {
+      name: `Olá! Bem-vindo à ${businessName}. Como podemos ajudar?`,
+      options: POLL_OPTIONS,
+      multipleAnswers: false,
+    },
+  }
+}
+
+export async function sendMenuPoll(
+  session: string,
+  chatId: string,
+  businessName: string
+): Promise<{ messageId?: string }> {
+  const body = buildMenuPoll(businessName)
+  try {
+    const res = await fetch(`${WAHA_API_URL}/api/sendPoll`, {
+      method: 'POST',
+      headers: wahaHeaders(),
+      body: JSON.stringify({ session, chatId, ...body }),
+    })
+    if (res.ok) {
+      const data = await res.json()
+      const messageId = typeof data.id === 'object'
+        ? (data.id?._serialized ?? data.id?.id ?? undefined)
+        : (data.id ?? undefined)
+      return { messageId }
+    }
+    // Fallback: WAHA não suportou poll, envia texto simples
+    console.warn('[sendMenuPoll] fallback para texto, status:', res.status)
+    await sendWhatsAppMessage({ session, to: chatId, message: buildMenuMessage(businessName) })
+    return {}
+  } catch (err) {
+    console.error('[sendMenuPoll] erro:', err)
+    await sendWhatsAppMessage({ session, to: chatId, message: buildMenuMessage(businessName) }).catch(() => {})
+    return {}
+  }
+}
+
 const OPTION_SECTOR: Record<number, string> = {
   1: 'Orçamento — Já sei as peças e serviço',
   2: 'Orçamento — Preciso de diagnóstico',
@@ -168,7 +215,7 @@ export async function createWahaSession(
   webhookUrl: string
 ): Promise<boolean> {
   const webhookConfig = {
-    webhooks: [{ url: webhookUrl, events: ['message'] }],
+    webhooks: [{ url: webhookUrl, events: ['message', 'poll.vote'] }],
   }
 
   try {

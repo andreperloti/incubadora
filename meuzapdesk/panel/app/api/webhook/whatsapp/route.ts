@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { verifyWebhookSecret, getWahaContactName, getWahaChatName, parsePhoneFromContactName, getWahaContactAvatar, getWahaContactPhone, sendMenuButtons, buildMenuMessage, buildOptionAutoReply, sendWhatsAppMessage } from '@/lib/whatsapp'
+import { verifyWebhookSecret, getWahaContactName, getWahaChatName, parsePhoneFromContactName, getWahaContactAvatar, getWahaContactPhone, sendMenuPoll, buildMenuMessage, buildOptionAutoReply, sendWhatsAppMessage, POLL_OPTIONS } from '@/lib/whatsapp'
 import { prisma } from '@/lib/db'
 import { broadcastToBusinessClients } from '@/lib/sse'
 
@@ -15,6 +15,11 @@ export async function POST(req: NextRequest) {
   }
 
   const body = await req.json()
+
+  // Voto em enquete (poll.vote)
+  if (body.event === 'poll.vote') {
+    return handlePollVote(body)
+  }
 
   // Ignora eventos que não sejam mensagens recebidas
   if (body.event !== 'message') {
@@ -45,13 +50,7 @@ export async function POST(req: NextRequest) {
     ? new Date(payload.timestamp * 1000)
     : new Date()
 
-  // Botão interativo clicado (WAHA envia como buttons_response ou interactive)
-  const buttonId: string | null =
-    (payload?.type === 'buttons_response' || payload?.type === 'interactive')
-      ? (payload?.selectedButtonId ?? payload?.selectedId ?? payload?.body ?? null)
-      : null
-
-  if (!phone || (!text && !buttonId)) {
+  if (!phone || !text) {
     return NextResponse.json({ status: 'ignored' })
   }
 
@@ -86,8 +85,72 @@ export async function POST(req: NextRequest) {
   return handleMessage({
     business, sessionName, phone,
     rawChatId: rawFrom, customerName,
-    text, buttonId, waMessageId, waTimestamp,
+    text, waMessageId, waTimestamp,
   })
+}
+
+async function handlePollVote(body: any) {
+  const sessionName: string = body.session
+  const vote = body.payload?.vote
+  const poll = body.payload?.poll
+  const sender = body.payload?.sender
+
+  const selectedOption: string = vote?.selectedOptions?.[0] ?? ''
+  const optionNumber = POLL_OPTIONS.indexOf(selectedOption) + 1 // 0 = não encontrado
+  const rawChatId: string = sender?.id ?? poll?.chatId ?? ''
+
+  if (!optionNumber || !rawChatId) {
+    return NextResponse.json({ status: 'ignored' })
+  }
+
+  const phone = rawChatId.endsWith('@c.us') ? rawChatId.replace('@c.us', '') : rawChatId
+
+  const business = await prisma.business.findFirst({ where: { wahaSession: sessionName } })
+  if (!business) return NextResponse.json({ status: 'ok' })
+
+  const realPhone = await getWahaContactPhone(sessionName, rawChatId)
+  const phoneAliases = Array.from(new Set(
+    [phone, rawChatId, realPhone].filter(Boolean) as string[]
+  ))
+
+  const conversation = await prisma.conversation.findFirst({
+    where: {
+      businessId: business.id,
+      customerPhone: { in: phoneAliases },
+      status: { not: 'resolved' },
+    },
+    orderBy: { createdAt: 'desc' },
+  })
+
+  if (!conversation) return NextResponse.json({ status: 'ok' })
+
+  // Salva a escolha do cliente como mensagem de entrada
+  const savedMessage = await prisma.message.create({
+    data: { conversationId: conversation.id, direction: 'in', content: selectedOption, sentAt: new Date() },
+    include: { senderUser: { select: { id: true, name: true } } },
+  })
+
+  broadcastToBusinessClients(String(business.id), {
+    type: 'new_message',
+    conversationId: conversation.id,
+    message: savedMessage,
+  })
+
+  // Atualiza status e opção selecionada
+  await prisma.conversation.update({
+    where: { id: conversation.id },
+    data: { status: 'in_queue', optionSelected: optionNumber, lastCustomerMessageAt: new Date() },
+  })
+
+  // Envia auto-reply
+  const reply = buildOptionAutoReply(optionNumber)
+  if (reply) {
+    sendWhatsAppMessage({ session: sessionName, to: rawChatId, message: reply })
+      .then(() => saveBotMessage(conversation.id, reply, business.id))
+      .catch(() => {})
+  }
+
+  return NextResponse.json({ status: 'ok' })
 }
 
 function saveBotMessage(conversationId: number, content: string, businessId: number, waMessageId?: string | null) {
@@ -102,7 +165,7 @@ function saveBotMessage(conversationId: number, content: string, businessId: num
 }
 
 async function handleMessage({
-  business, sessionName, phone, rawChatId, customerName, text, buttonId, waMessageId, waTimestamp,
+  business, sessionName, phone, rawChatId, customerName, text, waMessageId, waTimestamp,
 }: {
   business: { id: number; name: string }
   sessionName: string
@@ -110,7 +173,6 @@ async function handleMessage({
   rawChatId: string
   customerName: string
   text: string
-  buttonId: string | null
   waMessageId: string
   waTimestamp: Date
 }) {
@@ -182,9 +244,8 @@ async function handleMessage({
   } else {
     const wasResolved = existing!.status === 'resolved'
     const wasWaitingMenu = existing!.status === 'waiting_menu'
-    const selectedRaw = buttonId ?? text.trim()
-    const isOptionSelection = wasWaitingMenu && ['1', '2', '3', '4'].includes(selectedRaw)
-    const optionSelected = isOptionSelection ? parseInt(selectedRaw) : (wasResolved ? null : existing!.optionSelected)
+    const isOptionSelection = wasWaitingMenu && ['1', '2', '3', '4'].includes(text.trim())
+    const optionSelected = isOptionSelection ? parseInt(text.trim()) : (wasResolved ? null : existing!.optionSelected)
 
     if (isOptionSelection) {
       optionSelectedForReply = optionSelected
@@ -231,12 +292,12 @@ async function handleMessage({
       return NextResponse.json({ status: 'ok' })
     }
     savedMessage = await prisma.message.create({
-      data: { conversationId: conversation.id, direction: 'in', content: text || buttonId || '', waMessageId, sentAt: waTimestamp },
+      data: { conversationId: conversation.id, direction: 'in', content: text, waMessageId, sentAt: waTimestamp },
       include: { senderUser: { select: { id: true, name: true } } },
     })
   } else {
     savedMessage = await prisma.message.create({
-      data: { conversationId: conversation.id, direction: 'in', content: text || buttonId || '', sentAt: waTimestamp },
+      data: { conversationId: conversation.id, direction: 'in', content: text, sentAt: waTimestamp },
       include: { senderUser: { select: { id: true, name: true } } },
     })
   }
@@ -251,7 +312,7 @@ async function handleMessage({
   const menuText = buildMenuMessage(business.name)
 
   if (isNew) {
-    sendMenuButtons(sessionName, rawChatId, business.name)
+    sendMenuPoll(sessionName, rawChatId, business.name)
       .then((r) => {
         saveBotMessage(conversation.id, menuText, business.id, r.messageId)
       })
@@ -269,7 +330,7 @@ async function handleMessage({
 
   // Re-envia menu se ainda em waiting_menu sem opção selecionada (texto livre)
   if (!isNew && optionSelectedForReply === null && newStatus === 'waiting_menu') {
-    sendMenuButtons(sessionName, rawChatId, business.name)
+    sendMenuPoll(sessionName, rawChatId, business.name)
       .then((r) => {
         saveBotMessage(conversation.id, menuText, business.id, r.messageId)
       })
