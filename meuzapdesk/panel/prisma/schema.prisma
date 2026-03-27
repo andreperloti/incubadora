@@ -16,6 +16,7 @@ model Business {
   createdAt       DateTime       @default(now()) @map("created_at")
   users           User[]
   conversations   Conversation[]
+  botMenus        BotMenu[]
 
   @@map("businesses")
 }
@@ -58,8 +59,10 @@ model Conversation {
   lastCustomerMessageAt DateTime?        @map("last_customer_message_at")
   customerWaitingSince  DateTime?        @map("customer_waiting_since")
   resolvedAt            DateTime?        @map("resolved_at")
+  currentMenuId         Int?             @map("current_menu_id")
   business              Business         @relation(fields: [businessId], references: [id])
   assignedUser          User?            @relation("AssignedConversations", fields: [assignedUserId], references: [id])
+  currentMenu           BotMenu?         @relation("CurrentMenu", fields: [currentMenuId], references: [id], onDelete: SetNull)
   messages              Message[]
   alerts                ConversationAlert[]
 
@@ -90,6 +93,35 @@ model Message {
 enum Direction {
   in
   out
+}
+
+model BotMenu {
+  id            Int             @id @default(autoincrement())
+  businessId    Int             @map("business_id")
+  name          String
+  message       String
+  isRoot        Boolean         @default(false) @map("is_root")
+  createdAt     DateTime        @default(now()) @map("created_at")
+  business      Business        @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  options       BotMenuOption[]
+  conversations Conversation[]  @relation("CurrentMenu")
+  referencedBy  BotMenuOption[] @relation("NextMenu")
+
+  @@map("bot_menus")
+}
+
+model BotMenuOption {
+  id            Int      @id @default(autoincrement())
+  menuId        Int      @map("menu_id")
+  order         Int
+  label         String
+  nextMenuId    Int?     @map("next_menu_id")
+  finalMessage  String?  @map("final_message")
+  sectorName    String?  @map("sector_name")
+  menu          BotMenu  @relation(fields: [menuId], references: [id], onDelete: Cascade)
+  nextMenu      BotMenu? @relation("NextMenu", fields: [nextMenuId], references: [id], onDelete: SetNull)
+
+  @@map("bot_menu_options")
 }
 
 model ConversationAlert {

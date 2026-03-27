@@ -48,6 +48,13 @@ export default async function AdminLayout({ children }: { children: React.ReactN
           >
             📱 WhatsApp
           </Link>
+          <Link
+            href="/admin/menus"
+            className="flex items-center gap-2 px-3 py-2 text-sm rounded-lg transition hover:bg-gray-800"
+            style={{ color: '#8696a0' }}
+          >
+            🤖 Menus
+          </Link>
         </nav>
       </aside>
 

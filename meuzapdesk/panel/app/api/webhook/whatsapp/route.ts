@@ -176,27 +176,30 @@ async function handleMessage({
   waMessageId: string
   waTimestamp: Date
 }) {
-  // Resolve o número real antes do lookup para garantir match quando o contato
-  // chega como @lid mas a conversa foi criada/importada com o número @c.us.
-  // Para @c.us retorna imediatamente (sem chamada HTTP); para @lid consulta o WAHA.
   const realPhone = await getWahaContactPhone(sessionName, rawChatId)
 
-  // Monta lista de aliases de telefone para o lookup.
   const phoneAliases = Array.from(new Set(
     [phone, rawChatId, realPhone, parsePhoneFromContactName(customerName)].filter(Boolean) as string[]
   ))
 
-  // Busca conversa existente: primeiro aberta, depois resolvida (para reabrir)
+  // Busca menu raiz configurado (determina modo dinâmico vs hardcoded)
+  const rootMenu = await prisma.botMenu.findFirst({
+    where: { businessId: business.id, isRoot: true },
+    include: { options: { orderBy: { order: 'asc' } } },
+  })
+
+  const menuInclude = { currentMenu: { include: { options: { orderBy: { order: 'asc' as const } } } } }
+
   const activeConversations = await prisma.conversation.findMany({
     where: {
       businessId: business.id,
       customerPhone: { in: phoneAliases },
       status: { not: 'resolved' },
     },
+    include: menuInclude,
     orderBy: { createdAt: 'desc' },
   })
 
-  // Se houver duplicatas abertas, resolve as mais antigas automaticamente
   if (activeConversations.length > 1) {
     const idsToResolve = activeConversations.slice(1).map((c) => c.id)
     await prisma.conversation.updateMany({
@@ -205,7 +208,6 @@ async function handleMessage({
     })
   }
 
-  // Se não tem conversa aberta, tenta encontrar a mais recente resolvida para reabrir
   let existing: typeof activeConversations[0] | null = activeConversations[0] ?? null
   if (!existing) {
     existing = await prisma.conversation.findFirst({
@@ -214,18 +216,22 @@ async function handleMessage({
         customerPhone: { in: phoneAliases },
         status: 'resolved',
       },
+      include: menuInclude,
       orderBy: { createdAt: 'desc' },
     })
   }
 
-  let isNew = !existing
-  let optionSelectedForReply: number | null = null
-  let conversation: any = existing
-
-  // Busca foto de perfil (realPhone já foi resolvido acima)
   const avatarUrl = await getWahaContactAvatar(sessionName, phone)
 
-  let newStatus: string = existing?.status ?? 'waiting_menu'
+  let isNew = !existing
+  let conversation: any = existing
+
+  // Plano de ação do bot (determinado durante a atualização de status)
+  type BotAction = 'send_menu' | 'send_final' | 'resend_current' | 'hardcoded_menu' | 'hardcoded_reply' | 'none'
+  let botAction: BotAction = 'none'
+  let botMenuMessage: string | null = null
+  let botFinalMessage: string | null = null
+  let botHardcodedReply: number | null = null
 
   if (isNew) {
     conversation = await prisma.conversation.create({
@@ -239,25 +245,78 @@ async function handleMessage({
         unreadCount: 1,
         lastCustomerMessageAt: waTimestamp,
         customerWaitingSince: waTimestamp,
+        currentMenuId: rootMenu?.id ?? null,
       },
     })
+    if (rootMenu) {
+      botAction = 'send_menu'
+      botMenuMessage = rootMenu.message
+    } else {
+      botAction = 'hardcoded_menu'
+    }
   } else {
     const wasResolved = existing!.status === 'resolved'
     const wasWaitingMenu = existing!.status === 'waiting_menu'
-    const isOptionSelection = wasWaitingMenu && ['1', '2', '3', '4'].includes(text.trim())
-    const optionSelected = isOptionSelection ? parseInt(text.trim()) : (wasResolved ? null : existing!.optionSelected)
+    const currentMenuData = (existing as any).currentMenu as any
 
-    if (isOptionSelection) {
-      optionSelectedForReply = optionSelected
-    }
+    let newStatus: string = existing!.status
+    let optionSelected: number | null = wasResolved ? null : existing!.optionSelected
+    let newCurrentMenuId: number | null | undefined = undefined
 
-    // Determina o novo status
-    newStatus = existing!.status
     if (wasResolved) {
       newStatus = 'waiting_menu'
-      isNew = true // dispara menu de boas-vindas
+      isNew = true
+      newCurrentMenuId = rootMenu?.id ?? null
+      if (rootMenu) {
+        botAction = 'send_menu'
+        botMenuMessage = rootMenu.message
+      } else {
+        botAction = 'hardcoded_menu'
+      }
     } else if (wasWaitingMenu) {
-      newStatus = isOptionSelection ? 'in_queue' : 'waiting_menu'
+      if (currentMenuData) {
+        // Modo dinâmico: navega pela árvore de menus
+        const num = parseInt(text.trim())
+        const selectedOpt = isNaN(num) ? null : currentMenuData.options.find((o: any) => o.order === num)
+
+        if (selectedOpt) {
+          if (selectedOpt.nextMenuId) {
+            const nextMenu = await prisma.botMenu.findUnique({ where: { id: selectedOpt.nextMenuId } })
+            if (nextMenu) {
+              newCurrentMenuId = nextMenu.id
+              botAction = 'send_menu'
+              botMenuMessage = nextMenu.message
+            } else {
+              botAction = 'resend_current'
+              botMenuMessage = currentMenuData.message
+            }
+          } else {
+            newStatus = 'in_queue'
+            optionSelected = selectedOpt.order
+            botAction = 'send_final'
+            botFinalMessage = selectedOpt.finalMessage?.trim() || 'Obrigado! Um atendente vai te ajudar em breve. 😊'
+          }
+        } else {
+          botAction = 'resend_current'
+          botMenuMessage = currentMenuData.message
+        }
+      } else if (rootMenu) {
+        // Menu dinâmico configurado mas conversa sem currentMenuId (edge case): atribui raiz
+        newCurrentMenuId = rootMenu.id
+        botAction = 'send_menu'
+        botMenuMessage = rootMenu.message
+      } else {
+        // Fallback hardcoded
+        const isOptionSelection = ['1', '2', '3', '4'].includes(text.trim())
+        if (isOptionSelection) {
+          newStatus = 'in_queue'
+          optionSelected = parseInt(text.trim())
+          botAction = 'hardcoded_reply'
+          botHardcodedReply = optionSelected
+        } else {
+          botAction = 'hardcoded_menu'
+        }
+      }
     }
 
     const updateData: any = {
@@ -269,28 +328,22 @@ async function handleMessage({
       resolvedAt: wasResolved ? null : existing!.resolvedAt,
       unreadCount: wasResolved ? 1 : { increment: 1 },
     }
+    if (newCurrentMenuId !== undefined) updateData.currentMenuId = newCurrentMenuId
     if (avatarUrl && !existing!.customerAvatar) updateData.customerAvatar = avatarUrl
     if (realPhone && !existing!.customerRealPhone) updateData.customerRealPhone = realPhone
 
-    await prisma.conversation.update({
-      where: { id: existing!.id },
-      data: updateData,
-    })
+    await prisma.conversation.update({ where: { id: existing!.id }, data: updateData })
     conversation = { ...existing!, optionSelected, customerAvatar: avatarUrl || existing!.customerAvatar }
   }
 
-  // ── 1. Salva a mensagem — idempotente: verifica duplicata pelo waMessageId antes de inserir
-  // (waMessageId tem índice único parcial no DB mas não é @unique no schema Prisma)
+  // ── 1. Salva a mensagem (idempotente)
   let savedMessage: any
   if (waMessageId) {
-    const existing = await prisma.message.findFirst({
+    const dup = await prisma.message.findFirst({
       where: { waMessageId },
       include: { senderUser: { select: { id: true, name: true } } },
     })
-    if (existing) {
-      // Mensagem já salva (replay do histórico WAHA) — não duplica
-      return NextResponse.json({ status: 'ok' })
-    }
+    if (dup) return NextResponse.json({ status: 'ok' })
     savedMessage = await prisma.message.create({
       data: { conversationId: conversation.id, direction: 'in', content: text, waMessageId, sentAt: waTimestamp },
       include: { senderUser: { select: { id: true, name: true } } },
@@ -308,33 +361,38 @@ async function handleMessage({
     message: savedMessage,
   })
 
-  // ── 2. Bot: envia menu e auto-reply diretamente via WAHA ─────────────────
-  const menuText = buildMenuMessage(business.name)
-
-  if (isNew) {
-    sendWhatsAppMessage({ session: sessionName, to: rawChatId, message: menuText })
-      .then((r) => {
-        saveBotMessage(conversation.id, menuText, business.id, r.messageId ?? undefined)
-      })
-      .catch(() => {})
-  }
-
-  if (optionSelectedForReply !== null) {
-    const reply = buildOptionAutoReply(optionSelectedForReply)
-    if (reply) {
-      sendWhatsAppMessage({ session: sessionName, to: rawChatId, message: reply })
-        .then(() => saveBotMessage(conversation.id, reply, business.id))
+  // ── 2. Executa ação do bot
+  switch (botAction) {
+    case 'send_menu':
+    case 'resend_current': {
+      const msg = botMenuMessage!
+      sendWhatsAppMessage({ session: sessionName, to: rawChatId, message: msg })
+        .then((r) => saveBotMessage(conversation.id, msg, business.id, r.messageId ?? undefined))
         .catch(() => {})
+      break
     }
-  }
-
-  // Re-envia menu se ainda em waiting_menu sem opção selecionada (texto livre)
-  if (!isNew && optionSelectedForReply === null && newStatus === 'waiting_menu') {
-    sendWhatsAppMessage({ session: sessionName, to: rawChatId, message: menuText })
-      .then((r) => {
-        saveBotMessage(conversation.id, menuText, business.id, r.messageId ?? undefined)
-      })
-      .catch(() => {})
+    case 'send_final': {
+      sendWhatsAppMessage({ session: sessionName, to: rawChatId, message: botFinalMessage! })
+        .then(() => saveBotMessage(conversation.id, botFinalMessage!, business.id))
+        .catch(() => {})
+      break
+    }
+    case 'hardcoded_menu': {
+      const menuText = buildMenuMessage(business.name)
+      sendWhatsAppMessage({ session: sessionName, to: rawChatId, message: menuText })
+        .then((r) => saveBotMessage(conversation.id, menuText, business.id, r.messageId ?? undefined))
+        .catch(() => {})
+      break
+    }
+    case 'hardcoded_reply': {
+      const reply = buildOptionAutoReply(botHardcodedReply!)
+      if (reply) {
+        sendWhatsAppMessage({ session: sessionName, to: rawChatId, message: reply })
+          .then(() => saveBotMessage(conversation.id, reply, business.id))
+          .catch(() => {})
+      }
+      break
+    }
   }
 
   return NextResponse.json({ status: 'ok' })
