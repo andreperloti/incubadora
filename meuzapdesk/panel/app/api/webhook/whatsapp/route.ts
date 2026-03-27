@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { verifyWebhookSecret, getWahaContactName, getWahaChatName, parsePhoneFromContactName, getWahaContactAvatar, getWahaContactPhone, sendMenuPoll, buildMenuMessage, buildOptionAutoReply, sendWhatsAppMessage, POLL_OPTIONS } from '@/lib/whatsapp'
+import { verifyWebhookSecret, getWahaContactName, getWahaChatName, parsePhoneFromContactName, getWahaContactAvatar, getWahaContactPhone, buildMenuMessage, buildOptionAutoReply, sendWhatsAppMessage, POLL_OPTIONS } from '@/lib/whatsapp'
 import { prisma } from '@/lib/db'
 import { broadcastToBusinessClients } from '@/lib/sse'
 
@@ -312,9 +312,9 @@ async function handleMessage({
   const menuText = buildMenuMessage(business.name)
 
   if (isNew) {
-    sendMenuPoll(sessionName, rawChatId, business.name)
+    sendWhatsAppMessage({ session: sessionName, to: rawChatId, message: menuText })
       .then((r) => {
-        saveBotMessage(conversation.id, menuText, business.id, r.messageId)
+        saveBotMessage(conversation.id, menuText, business.id, r.messageId ?? undefined)
       })
       .catch(() => {})
   }
@@ -330,9 +330,9 @@ async function handleMessage({
 
   // Re-envia menu se ainda em waiting_menu sem opção selecionada (texto livre)
   if (!isNew && optionSelectedForReply === null && newStatus === 'waiting_menu') {
-    sendMenuPoll(sessionName, rawChatId, business.name)
+    sendWhatsAppMessage({ session: sessionName, to: rawChatId, message: menuText })
       .then((r) => {
-        saveBotMessage(conversation.id, menuText, business.id, r.messageId)
+        saveBotMessage(conversation.id, menuText, business.id, r.messageId ?? undefined)
       })
       .catch(() => {})
   }
