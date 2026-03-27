@@ -75,6 +75,49 @@ export function buildMenuMessage(businessName: string): string {
   return `Olá! Bem-vindo à ${businessName}. Como podemos ajudar?\n\n1️⃣ Orçamento — Já sei as peças e serviço\n2️⃣ Orçamento — Preciso de diagnóstico\n3️⃣ Status do meu serviço\n4️⃣ Fornecedores e outros assuntos`
 }
 
+export function buildMenuButtons(businessName: string) {
+  return {
+    body: `Olá! Bem-vindo à ${businessName}. Como podemos ajudar?`,
+    footer: 'Toque para selecionar',
+    buttons: [
+      { type: 'reply' as const, text: '🔧 Orçamento (peças/serviço)', id: '1' },
+      { type: 'reply' as const, text: '🔍 Orçamento (diagnóstico)',   id: '2' },
+      { type: 'reply' as const, text: '📋 Status do meu serviço',     id: '3' },
+      { type: 'reply' as const, text: '📦 Fornecedores e outros',     id: '4' },
+    ],
+  }
+}
+
+export async function sendMenuButtons(
+  session: string,
+  chatId: string,
+  businessName: string
+): Promise<{ messageId?: string }> {
+  const menu = buildMenuButtons(businessName)
+  try {
+    const res = await fetch(`${WAHA_API_URL}/api/sendButtons`, {
+      method: 'POST',
+      headers: wahaHeaders(),
+      body: JSON.stringify({ session, chatId, ...menu }),
+    })
+    if (res.ok) {
+      const data = await res.json()
+      const messageId = typeof data.id === 'object'
+        ? (data.id?._serialized ?? data.id?.id ?? undefined)
+        : (data.id ?? undefined)
+      return { messageId }
+    }
+    // Fallback: WAHA não suportou botões (ex: versão sem Plus), envia texto simples
+    console.warn('[sendMenuButtons] fallback para texto, status:', res.status)
+    await sendWhatsAppMessage({ session, to: chatId, message: buildMenuMessage(businessName) })
+    return {}
+  } catch (err) {
+    console.error('[sendMenuButtons] erro:', err)
+    await sendWhatsAppMessage({ session, to: chatId, message: buildMenuMessage(businessName) }).catch(() => {})
+    return {}
+  }
+}
+
 const OPTION_SECTOR: Record<number, string> = {
   1: 'Orçamento — Já sei as peças e serviço',
   2: 'Orçamento — Preciso de diagnóstico',

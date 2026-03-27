@@ -1,22 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { verifyWebhookSecret, getWahaContactName, getWahaChatName, parsePhoneFromContactName, getWahaContactAvatar, getWahaContactPhone } from '@/lib/whatsapp'
+import { verifyWebhookSecret, getWahaContactName, getWahaChatName, parsePhoneFromContactName, getWahaContactAvatar, getWahaContactPhone, sendMenuButtons, buildMenuMessage, buildOptionAutoReply, sendWhatsAppMessage } from '@/lib/whatsapp'
 import { prisma } from '@/lib/db'
 import { broadcastToBusinessClients } from '@/lib/sse'
 
 // Payload do WAHA ao receber uma mensagem:
 // { event: "message", session: "nome-da-sessao", payload: { id, from, body, timestamp, notifyName, fromMe, ... } }
 
-const N8N_WEBHOOK_URL = process.env.N8N_WEBHOOK_URL || ''
-
-// Dispara o n8n de forma assíncrona (fire-and-forget) para processar respostas automáticas
-function notifyN8n(payload: object) {
-  if (!N8N_WEBHOOK_URL) return
-  fetch(N8N_WEBHOOK_URL, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload),
-  }).catch((err) => console.error('[n8n] Falha ao notificar:', err))
-}
 
 export async function POST(req: NextRequest) {
   // Valida o secret na query string
@@ -56,7 +45,13 @@ export async function POST(req: NextRequest) {
     ? new Date(payload.timestamp * 1000)
     : new Date()
 
-  if (!phone || !text) {
+  // Botão interativo clicado (WAHA envia como buttons_response ou interactive)
+  const buttonId: string | null =
+    (payload?.type === 'buttons_response' || payload?.type === 'interactive')
+      ? (payload?.selectedButtonId ?? payload?.selectedId ?? payload?.body ?? null)
+      : null
+
+  if (!phone || (!text && !buttonId)) {
     return NextResponse.json({ status: 'ignored' })
   }
 
@@ -91,12 +86,23 @@ export async function POST(req: NextRequest) {
   return handleMessage({
     business, sessionName, phone,
     rawChatId: rawFrom, customerName,
-    text, waMessageId, waTimestamp,
+    text, buttonId, waMessageId, waTimestamp,
   })
 }
 
+function saveBotMessage(conversationId: number, content: string, businessId: number, waMessageId?: string | null) {
+  prisma.message.create({
+    data: { conversationId, direction: 'out', content, senderUserId: null, waMessageId: waMessageId ?? null },
+    include: { senderUser: { select: { id: true, name: true } } },
+  })
+  .then((msg) => {
+    broadcastToBusinessClients(String(businessId), { type: 'new_message', conversationId, message: msg })
+  })
+  .catch((err) => console.error('[bot-save]', err))
+}
+
 async function handleMessage({
-  business, sessionName, phone, rawChatId, customerName, text, waMessageId, waTimestamp,
+  business, sessionName, phone, rawChatId, customerName, text, buttonId, waMessageId, waTimestamp,
 }: {
   business: { id: number; name: string }
   sessionName: string
@@ -104,6 +110,7 @@ async function handleMessage({
   rawChatId: string
   customerName: string
   text: string
+  buttonId: string | null
   waMessageId: string
   waTimestamp: Date
 }) {
@@ -156,6 +163,8 @@ async function handleMessage({
   // Busca foto de perfil (realPhone já foi resolvido acima)
   const avatarUrl = await getWahaContactAvatar(sessionName, phone)
 
+  let newStatus: string = existing?.status ?? 'waiting_menu'
+
   if (isNew) {
     conversation = await prisma.conversation.create({
       data: {
@@ -173,15 +182,16 @@ async function handleMessage({
   } else {
     const wasResolved = existing!.status === 'resolved'
     const wasWaitingMenu = existing!.status === 'waiting_menu'
-    const isOptionSelection = wasWaitingMenu && ['1', '2', '3', '4'].includes(text.trim())
-    const optionSelected = isOptionSelection ? parseInt(text.trim()) : (wasResolved ? null : existing!.optionSelected)
+    const selectedRaw = buttonId ?? text.trim()
+    const isOptionSelection = wasWaitingMenu && ['1', '2', '3', '4'].includes(selectedRaw)
+    const optionSelected = isOptionSelection ? parseInt(selectedRaw) : (wasResolved ? null : existing!.optionSelected)
 
     if (isOptionSelection) {
       optionSelectedForReply = optionSelected
     }
 
     // Determina o novo status
-    let newStatus = existing!.status
+    newStatus = existing!.status
     if (wasResolved) {
       newStatus = 'waiting_menu'
       isNew = true // dispara menu de boas-vindas
@@ -221,12 +231,12 @@ async function handleMessage({
       return NextResponse.json({ status: 'ok' })
     }
     savedMessage = await prisma.message.create({
-      data: { conversationId: conversation.id, direction: 'in', content: text, waMessageId, sentAt: waTimestamp },
+      data: { conversationId: conversation.id, direction: 'in', content: text || buttonId || '', waMessageId, sentAt: waTimestamp },
       include: { senderUser: { select: { id: true, name: true } } },
     })
   } else {
     savedMessage = await prisma.message.create({
-      data: { conversationId: conversation.id, direction: 'in', content: text, sentAt: waTimestamp },
+      data: { conversationId: conversation.id, direction: 'in', content: text || buttonId || '', sentAt: waTimestamp },
       include: { senderUser: { select: { id: true, name: true } } },
     })
   }
@@ -237,20 +247,34 @@ async function handleMessage({
     message: savedMessage,
   })
 
-  // ── 2. Notifica o n8n para processar respostas automáticas ──
-  // chatId = identificador WAHA correto (@c.us ou @lid) para usar no sendText
-  notifyN8n({
-    conversationId: conversation.id,
-    businessId: business.id,
-    businessName: business.name,
-    session: sessionName,
-    phone,
-    chatId: rawChatId,
-    customerName,
-    text,
-    isNew,
-    optionSelected: optionSelectedForReply,
-  })
+  // ── 2. Bot: envia menu e auto-reply diretamente via WAHA ─────────────────
+  const menuText = buildMenuMessage(business.name)
+
+  if (isNew) {
+    sendMenuButtons(sessionName, rawChatId, business.name)
+      .then((r) => {
+        saveBotMessage(conversation.id, menuText, business.id, r.messageId)
+      })
+      .catch(() => {})
+  }
+
+  if (optionSelectedForReply !== null) {
+    const reply = buildOptionAutoReply(optionSelectedForReply)
+    if (reply) {
+      sendWhatsAppMessage({ session: sessionName, to: rawChatId, message: reply })
+        .then(() => saveBotMessage(conversation.id, reply, business.id))
+        .catch(() => {})
+    }
+  }
+
+  // Re-envia menu se ainda em waiting_menu sem opção selecionada (texto livre)
+  if (!isNew && optionSelectedForReply === null && newStatus === 'waiting_menu') {
+    sendMenuButtons(sessionName, rawChatId, business.name)
+      .then((r) => {
+        saveBotMessage(conversation.id, menuText, business.id, r.messageId)
+      })
+      .catch(() => {})
+  }
 
   return NextResponse.json({ status: 'ok' })
 }
