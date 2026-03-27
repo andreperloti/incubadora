@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useRef, useState, useCallback } from 'react'
+import { useEffect, useRef, useState, useCallback, useMemo } from 'react'
 import type { Session } from 'next-auth'
 import clsx from 'clsx'
 import { LeftNavStrip } from '@/components/LeftNavStrip'
@@ -149,33 +149,37 @@ function ChatPanel({
   onResolve: () => void
   onNewMessage: (msg: Message) => void
 }) {
-  const [messages, setMessages] = useState<Message[]>(conversation.messages)
+  // Mensagens otimistas: enviadas pelo agente mas ainda não confirmadas pelo poll
+  const [optimisticMessages, setOptimisticMessages] = useState<Message[]>([])
   const [status, setStatus] = useState(conversation.status)
   const [text, setText] = useState('')
   const [sending, setSending] = useState(false)
   const bottomRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
 
+  // Reset ao trocar de conversa
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: 'instant' })
-  }, [messages])
-
-  // Merge messages from parent (SSE updates) without duplicating by id
-  useEffect(() => {
-    setMessages((prev) => {
-      const existingIds = new Set(prev.map((m) => m.id))
-      const toAdd = conversation.messages.filter((m) => !existingIds.has(m.id))
-      return toAdd.length > 0 ? [...prev, ...toAdd] : prev
-    })
-  }, [conversation.messages])
-
-  // When conversation changes, reset entirely
-  useEffect(() => {
-    setMessages(conversation.messages)
+    setOptimisticMessages([])
     setStatus(conversation.status)
     setText('')
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [conversation.id])
+
+  // Atualiza status quando muda no servidor
+  useEffect(() => {
+    setStatus(conversation.status)
+  }, [conversation.status])
+
+  // Mensagens finais: servidor + otimistas que ainda não vieram do servidor
+  const messages = useMemo(() => {
+    const serverIds = new Set(conversation.messages.map((m) => m.id))
+    const pending = optimisticMessages.filter((m) => !serverIds.has(m.id))
+    return [...conversation.messages, ...pending]
+  }, [conversation.messages, optimisticMessages])
+
+  useEffect(() => {
+    bottomRef.current?.scrollIntoView({ behavior: 'instant' })
+  }, [messages])
 
   async function handleSend() {
     if (!text.trim() || sending) return
@@ -192,9 +196,11 @@ function ChatPanel({
     if (res.ok) {
       const data = await res.json()
       if (data.message) {
-        setMessages((prev) =>
+        // Adiciona de forma otimista — o poll removerá quando confirmar do servidor
+        setOptimisticMessages((prev) =>
           prev.some((m) => m.id === data.message.id) ? prev : [...prev, data.message]
         )
+        onNewMessage(data.message)
         setStatus('in_progress')
       }
     } else {
@@ -405,14 +411,59 @@ export function AtendimentoClient({
   const [activeConv, setActiveConv] = useState<ConvDetail | null>(null)
   const [loadingConv, setLoadingConv] = useState(false)
   const activeIdRef = useRef<number | null>(null)
-  const loadConversationRef = useRef<((id: number) => Promise<void>) | null>(null)
+  const loadConversationRef = useRef<((id: number, silent?: boolean) => Promise<void>) | null>(null)
+  const audioCtxRef = useRef<AudioContext | null>(null)
 
   useEffect(() => {
     activeIdRef.current = selectedId
   }, [selectedId])
 
-  const loadConversation = useCallback(async (id: number) => {
-    setLoadingConv(true)
+  // Solicita permissão de notificação do browser na primeira montagem
+  useEffect(() => {
+    if (typeof Notification !== 'undefined' && Notification.permission === 'default') {
+      Notification.requestPermission()
+    }
+  }, [])
+
+  // Atualiza o título da aba com o total de mensagens não lidas
+  useEffect(() => {
+    const total = conversations.reduce((sum, c) => sum + c.unreadCount, 0)
+    document.title = total > 0 ? `(${total}) MeuZapDesk` : 'MeuZapDesk'
+  }, [conversations])
+
+  const playNotificationSound = useCallback(() => {
+    try {
+      if (!audioCtxRef.current) {
+        audioCtxRef.current = new AudioContext()
+      }
+      const ctx = audioCtxRef.current
+      const osc = ctx.createOscillator()
+      const gain = ctx.createGain()
+      osc.connect(gain)
+      gain.connect(ctx.destination)
+      osc.type = 'sine'
+      osc.frequency.setValueAtTime(880, ctx.currentTime)
+      osc.frequency.exponentialRampToValueAtTime(440, ctx.currentTime + 0.15)
+      gain.gain.setValueAtTime(0.3, ctx.currentTime)
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.3)
+      osc.start(ctx.currentTime)
+      osc.stop(ctx.currentTime + 0.3)
+    } catch {}
+  }, [])
+
+  const showBrowserNotification = useCallback((name: string, text: string) => {
+    if (typeof Notification === 'undefined') return
+    if (Notification.permission !== 'granted') return
+    if (document.visibilityState === 'visible' && document.hasFocus()) return
+    new Notification(`💬 ${name}`, {
+      body: text.length > 80 ? text.slice(0, 80) + '…' : text,
+      icon: '/icon.png',
+      tag: 'new-message',
+    } as NotificationOptions)
+  }, [])
+
+  const loadConversation = useCallback(async (id: number, silent = false) => {
+    if (!silent) setLoadingConv(true)
     try {
       const res = await fetch(`/api/conversations/${id}`)
       if (res.ok) {
@@ -420,7 +471,7 @@ export function AtendimentoClient({
         setActiveConv(data)
       }
     } finally {
-      setLoadingConv(false)
+      if (!silent) setLoadingConv(false)
     }
   }, [])
 
@@ -433,10 +484,41 @@ export function AtendimentoClient({
     }
   }, [selectedId, loadConversation])
 
+  // Polling da conversa ativa a cada 3s — garante atualização em tempo real
+  // independente do SSE funcionar ou não
+  useEffect(() => {
+    if (selectedId === null) return
+    const interval = setInterval(async () => {
+      try {
+        const res = await fetch(`/api/conversations/${selectedId}`)
+        if (res.ok) {
+          const data = await res.json()
+          console.log('[POLL] ok', { id: selectedId, msgs: data.messages?.length, unread: data.unreadCount })
+          setActiveConv(data)
+        } else {
+          console.log('[POLL] falhou', res.status)
+        }
+      } catch (err) {
+        console.log('[POLL] erro', err)
+      }
+    }, 3000)
+    return () => clearInterval(interval)
+  }, [selectedId])
+
   const refreshList = useCallback(() => {
     fetch('/api/conversations')
       .then((r) => r.json())
-      .then((data) => setConversations(data))
+      .then((data: ConvSummary[]) => {
+        setConversations(data)
+        // Se a conversa ativa tem mensagens não lidas, recarrega o chat para exibi-las
+        const activeId = activeIdRef.current
+        if (activeId !== null) {
+          const fresh = data.find((c) => c.id === activeId)
+          if (fresh && fresh.unreadCount > 0) {
+            loadConversationRef.current?.(activeId, true)
+          }
+        }
+      })
       .catch(() => {})
   }, [])
 
@@ -446,6 +528,21 @@ export function AtendimentoClient({
       .then((data) => setRecentConversations(data))
       .catch(() => {})
   }, [])
+
+  // Atualiza a lista ao retornar para a aba/janela (evita dados stale após navegar)
+  useEffect(() => {
+    const handleFocus = () => {
+      refreshList()
+      refreshRecent()
+    }
+    window.addEventListener('focus', handleFocus)
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible') handleFocus()
+    })
+    return () => {
+      window.removeEventListener('focus', handleFocus)
+    }
+  }, [refreshList, refreshRecent])
 
   // Sync automático do histórico WAHA ao montar — apenas OWNER, throttle 5 min
   useEffect(() => {
@@ -493,11 +590,33 @@ export function AtendimentoClient({
           const event = JSON.parse(e.data)
 
           if (event.type === 'new_message') {
+            const msg: Message = event.message
+            const isIncoming = msg.direction === 'in'
+
+            console.log('[SSE] new_message', { eventConvId: event.conversationId, activeId: activeIdRef.current, match: event.conversationId === activeIdRef.current })
+
             if (event.conversationId === activeIdRef.current) {
+              // Append direto para feedback imediato
               setActiveConv((prev) =>
-                prev ? { ...prev, messages: [...prev.messages, event.message] } : prev
+                prev ? { ...prev, messages: [...prev.messages, msg] } : prev
               )
             }
+
+            // Sempre recarrega a conversa ativa se for para ela (garante sincronia mesmo com mismatch de ID)
+            if (activeIdRef.current !== null && event.conversationId === activeIdRef.current) {
+              loadConversationRef.current?.(event.conversationId, true)
+            }
+
+            if (isIncoming) {
+              playNotificationSound()
+              setConversations((prev) => {
+                const conv = prev.find((c) => c.id === event.conversationId)
+                const name = conv?.customerName || conv?.customerRealPhone || conv?.customerPhone || 'Novo cliente'
+                showBrowserNotification(name, msg.content)
+                return prev
+              })
+            }
+
             refreshList()
           }
 
@@ -522,7 +641,7 @@ export function AtendimentoClient({
       closed = true
       es?.close()
     }
-  }, [refreshList])
+  }, [refreshList, playNotificationSound, showBrowserNotification])
 
   function handleResolve() {
     setSelectedId(null)

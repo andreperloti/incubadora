@@ -33,28 +33,34 @@ export async function GET(
     return NextResponse.json({ error: 'Conversa não encontrada' }, { status: 404 })
   }
 
-  // Busca avatar e número real se ainda não tiver
-  const [newAvatar, newRealPhone] = await Promise.all([
-    conversation.customerAvatar ? Promise.resolve(null) : getWahaContactAvatar(conversation.business.wahaSession, conversation.customerPhone),
-    conversation.customerRealPhone ? Promise.resolve(null) : getWahaContactPhone(conversation.business.wahaSession, conversation.customerPhone),
-  ])
-
-  // Zera não lidas, salva avatar e número real se encontrados
-  await prisma.conversation.update({
-    where: { id: conversationId },
-    data: {
-      unreadCount: 0,
-      ...(newAvatar ? { customerAvatar: newAvatar } : {}),
-      ...(newRealPhone ? { customerRealPhone: newRealPhone } : {}),
-    },
-  })
-
   const { business: _b, ...convData } = conversation
+
+  // Zera não lidas imediatamente (não bloqueia na resposta)
+  prisma.conversation.update({
+    where: { id: conversationId },
+    data: { unreadCount: 0 },
+  }).catch(() => {})
+
+  // Busca avatar/telefone em background se ainda não tiver (fire-and-forget)
+  if (!conversation.customerAvatar || !conversation.customerRealPhone) {
+    Promise.all([
+      conversation.customerAvatar ? Promise.resolve(null) : getWahaContactAvatar(conversation.business.wahaSession, conversation.customerPhone),
+      conversation.customerRealPhone ? Promise.resolve(null) : getWahaContactPhone(conversation.business.wahaSession, conversation.customerPhone),
+    ]).then(([newAvatar, newRealPhone]) => {
+      if (newAvatar || newRealPhone) {
+        prisma.conversation.update({
+          where: { id: conversationId },
+          data: {
+            ...(newAvatar ? { customerAvatar: newAvatar } : {}),
+            ...(newRealPhone ? { customerRealPhone: newRealPhone } : {}),
+          },
+        }).catch(() => {})
+      }
+    }).catch(() => {})
+  }
 
   return NextResponse.json({
     ...convData,
     unreadCount: 0,
-    customerAvatar: newAvatar ?? conversation.customerAvatar,
-    customerRealPhone: newRealPhone ?? conversation.customerRealPhone,
   })
 }

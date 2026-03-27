@@ -48,7 +48,7 @@ export async function GET(req: NextRequest) {
         clearInterval(heartbeat)
         await subscriber.unsubscribe(channel)
         subscriber.disconnect()
-        controller.close()
+        try { controller.close() } catch {}
       })
     },
   })

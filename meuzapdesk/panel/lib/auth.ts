@@ -1,13 +1,8 @@
 import type { NextAuthOptions } from 'next-auth'
 import CredentialsProvider from 'next-auth/providers/credentials'
 import bcrypt from 'bcryptjs'
-import { createHash } from 'crypto'
 import { prisma } from '@/lib/db'
 
-function gravatarUrl(email: string): string {
-  const hash = createHash('md5').update(email.trim().toLowerCase()).digest('hex')
-  return `https://www.gravatar.com/avatar/${hash}?d=404&s=80`
-}
 
 export const authOptions: NextAuthOptions = {
   providers: [
@@ -37,7 +32,7 @@ export const authOptions: NextAuthOptions = {
           role: user.role,
           businessId: user.businessId ? String(user.businessId) : null,
           businessName: user.business?.name ?? 'Master Admin',
-          image: gravatarUrl(user.email),
+          image: null,
         }
       },
     }),

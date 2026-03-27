@@ -107,11 +107,14 @@ async function handleMessage({
   waMessageId: string
   waTimestamp: Date
 }) {
+  // Resolve o número real antes do lookup para garantir match quando o contato
+  // chega como @lid mas a conversa foi criada/importada com o número @c.us.
+  // Para @c.us retorna imediatamente (sem chamada HTTP); para @lid consulta o WAHA.
+  const realPhone = await getWahaContactPhone(sessionName, rawChatId)
+
   // Monta lista de aliases de telefone para o lookup.
-  // Se for @lid, tenta extrair o número real do customerName (ex: "+55 16 99119-8729" → "5516991198729")
-  // para encontrar conversas anteriores que usavam o formato @c.us.
   const phoneAliases = Array.from(new Set(
-    [phone, rawChatId, parsePhoneFromContactName(customerName)].filter(Boolean) as string[]
+    [phone, rawChatId, realPhone, parsePhoneFromContactName(customerName)].filter(Boolean) as string[]
   ))
 
   // Busca conversa existente: primeiro aberta, depois resolvida (para reabrir)
@@ -134,7 +137,7 @@ async function handleMessage({
   }
 
   // Se não tem conversa aberta, tenta encontrar a mais recente resolvida para reabrir
-  let existing = activeConversations[0] ?? null
+  let existing: typeof activeConversations[0] | null = activeConversations[0] ?? null
   if (!existing) {
     existing = await prisma.conversation.findFirst({
       where: {
@@ -150,11 +153,8 @@ async function handleMessage({
   let optionSelectedForReply: number | null = null
   let conversation: any = existing
 
-  // Busca foto de perfil e número real em paralelo
-  const [avatarUrl, realPhone] = await Promise.all([
-    getWahaContactAvatar(sessionName, phone),
-    getWahaContactPhone(sessionName, rawChatId),
-  ])
+  // Busca foto de perfil (realPhone já foi resolvido acima)
+  const avatarUrl = await getWahaContactAvatar(sessionName, phone)
 
   if (isNew) {
     conversation = await prisma.conversation.create({
@@ -208,17 +208,28 @@ async function handleMessage({
     conversation = { ...existing!, optionSelected, customerAvatar: avatarUrl || existing!.customerAvatar }
   }
 
-  // ── 1. Salva a mensagem recebida com o timestamp real do WhatsApp ──
-  const savedMessage = await prisma.message.create({
-    data: {
-      conversationId: conversation.id,
-      direction: 'in',
-      content: text,
-      waMessageId,
-      sentAt: waTimestamp,
-    },
-    include: { senderUser: { select: { id: true, name: true } } },
-  })
+  // ── 1. Salva a mensagem — idempotente: verifica duplicata pelo waMessageId antes de inserir
+  // (waMessageId tem índice único parcial no DB mas não é @unique no schema Prisma)
+  let savedMessage: any
+  if (waMessageId) {
+    const existing = await prisma.message.findFirst({
+      where: { waMessageId },
+      include: { senderUser: { select: { id: true, name: true } } },
+    })
+    if (existing) {
+      // Mensagem já salva (replay do histórico WAHA) — não duplica
+      return NextResponse.json({ status: 'ok' })
+    }
+    savedMessage = await prisma.message.create({
+      data: { conversationId: conversation.id, direction: 'in', content: text, waMessageId, sentAt: waTimestamp },
+      include: { senderUser: { select: { id: true, name: true } } },
+    })
+  } else {
+    savedMessage = await prisma.message.create({
+      data: { conversationId: conversation.id, direction: 'in', content: text, sentAt: waTimestamp },
+      include: { senderUser: { select: { id: true, name: true } } },
+    })
+  }
 
   broadcastToBusinessClients(String(business.id), {
     type: 'new_message',

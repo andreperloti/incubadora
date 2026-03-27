@@ -16,13 +16,40 @@ type ImportProgress = {
   chatName: string
 }
 
-const STATUS_CONFIG: Record<string, { label: string; textColor: string; bg: string; icon: string }> = {
-  STOPPED:      { label: 'Desconectado',        textColor: '#8696a0', bg: '#2a3942', icon: '⭕' },
-  STARTING:     { label: 'Iniciando...',         textColor: '#60a5fa', bg: '#1e3a5f', icon: '🔄' },
-  SCAN_QR_CODE: { label: 'Aguardando QR Code',   textColor: '#fbbf24', bg: '#3d2e00', icon: '📱' },
-  WORKING:      { label: 'Conectado',            textColor: '#34d399', bg: '#064e3b', icon: '✅' },
-  FAILED:       { label: 'Falha — reinicie',     textColor: '#f87171', bg: '#450a0a', icon: '❌' },
-  loading:      { label: 'Carregando...',        textColor: '#8696a0', bg: '#2a3942', icon: '⏳' },
+const STATUS_CONFIG: Record<string, { label: string; textColor: string; bg: string }> = {
+  STOPPED:      { label: 'Desconectado',      textColor: '#8696a0', bg: '#2a3942' },
+  STARTING:     { label: 'Iniciando...',       textColor: '#60a5fa', bg: '#1e3a5f' },
+  SCAN_QR_CODE: { label: 'Aguardando QR Code', textColor: '#fbbf24', bg: '#3d2e00' },
+  WORKING:      { label: 'Conectado',          textColor: '#34d399', bg: '#064e3b' },
+  FAILED:       { label: 'Falha — reinicie',   textColor: '#f87171', bg: '#450a0a' },
+  loading:      { label: 'Carregando...',      textColor: '#8696a0', bg: '#2a3942' },
+}
+
+// Spinner SVG inline
+function Spinner({ size = 16, color = 'currentColor' }: { size?: number; color?: string }) {
+  return (
+    <svg
+      width={size} height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke={color}
+      strokeWidth="2.5"
+      strokeLinecap="round"
+      className="animate-spin"
+      style={{ flexShrink: 0 }}
+    >
+      <path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83" />
+    </svg>
+  )
+}
+
+// Skeleton pulsante para o QR
+function QrSkeleton() {
+  return (
+    <div className="mx-auto w-56 h-56 rounded-xl overflow-hidden" style={{ background: '#2a3942' }}>
+      <div className="w-full h-full animate-pulse" style={{ background: 'linear-gradient(90deg, #2a3942 25%, #374e5a 50%, #2a3942 75%)', backgroundSize: '200% 100%' }} />
+    </div>
+  )
 }
 
 export default function WhatsAppSetupPage() {
@@ -34,6 +61,8 @@ export default function WhatsAppSetupPage() {
   const [importStatus, setImportStatus] = useState<string>('')
   const [importResult, setImportResult] = useState<{ conversations: number; messages: number } | null>(null)
   const [importError, setImportError] = useState('')
+  const [qrCountdown, setQrCountdown] = useState(15)
+  const [connecting, setConnecting] = useState(false)
   const importTriggeredRef = useRef(false)
   const prevStatusRef = useRef<SessionStatus | null>(null)
 
@@ -46,6 +75,7 @@ export default function WhatsAppSetupPage() {
   }, [])
 
   const fetchQr = useCallback(async () => {
+    setQrCountdown(15)
     const res = await fetch('/api/admin/waha/qr')
     if (res.ok) {
       const data = await res.json()
@@ -123,29 +153,45 @@ export default function WhatsAppSetupPage() {
     }
   }, [])
 
+  // Polling de status
   useEffect(() => {
     fetchStatus()
     const interval = setInterval(fetchStatus, 5000)
     return () => clearInterval(interval)
   }, [fetchStatus])
 
+  // Busca QR e countdown quando em SCAN_QR_CODE
   useEffect(() => {
     if (info?.status !== 'SCAN_QR_CODE') {
       setQr(null)
+      setQrCountdown(15)
       return
     }
     fetchQr()
-    const interval = setInterval(fetchQr, 15000)
-    return () => clearInterval(interval)
+    const refreshInterval = setInterval(fetchQr, 15000)
+
+    // Countdown visual
+    const countdownInterval = setInterval(() => {
+      setQrCountdown((n) => (n <= 1 ? 15 : n - 1))
+    }, 1000)
+
+    return () => {
+      clearInterval(refreshInterval)
+      clearInterval(countdownInterval)
+    }
   }, [info?.status, fetchQr])
 
-  // Auto-import quando transita para WORKING (acabou de conectar)
+  // Detecta transição para WORKING → mostra "Conectando" e dispara import
   useEffect(() => {
     const prev = prevStatusRef.current
     const current = info?.status
     prevStatusRef.current = current ?? null
 
-    if (prev && prev !== 'WORKING' && current === 'WORKING') {
+    if (prev === 'SCAN_QR_CODE' && current === 'WORKING') {
+      setConnecting(true)
+      setTimeout(() => setConnecting(false), 3000)
+      startImport()
+    } else if (prev && prev !== 'WORKING' && current === 'WORKING') {
       startImport()
     }
   }, [info?.status, startImport])
@@ -181,10 +227,7 @@ export default function WhatsAppSetupPage() {
       <h1 className="text-lg font-bold mb-6" style={{ color: '#e9edef' }}>Conexão WhatsApp</h1>
 
       {/* Status card */}
-      <div
-        className="rounded-xl p-6 mb-6"
-        style={{ background: '#202c33', border: '1px solid #2a3942' }}
-      >
+      <div className="rounded-xl p-6 mb-6" style={{ background: '#202c33', border: '1px solid #2a3942' }}>
         <div className="flex items-center justify-between mb-4">
           <p className="text-xs font-semibold uppercase tracking-wide" style={{ color: '#8696a0' }}>
             Status da sessão
@@ -198,15 +241,26 @@ export default function WhatsAppSetupPage() {
           className="inline-flex items-center gap-2 px-4 py-2 rounded-full text-sm font-semibold"
           style={{ background: cfg.bg, color: cfg.textColor }}
         >
-          <span>{cfg.icon}</span>
+          {(status === 'STARTING' || status === 'loading') && <Spinner size={14} color={cfg.textColor} />}
+          {status === 'SCAN_QR_CODE' && <span>📱</span>}
+          {status === 'WORKING' && <span>✅</span>}
+          {status === 'STOPPED' && <span>⭕</span>}
+          {status === 'FAILED' && <span>❌</span>}
           <span>{cfg.label}</span>
         </div>
 
-        {status === 'WORKING' && info?.me && (
-          <div
-            className="mt-4 p-3 rounded-xl text-sm"
-            style={{ background: '#064e3b', color: '#34d399' }}
-          >
+        {/* Conectando após scan */}
+        {connecting && (
+          <div className="mt-4 flex items-center gap-3 px-4 py-3 rounded-xl" style={{ background: '#064e3b' }}>
+            <Spinner size={16} color="#34d399" />
+            <p className="text-sm font-semibold" style={{ color: '#34d399' }}>
+              WhatsApp conectado! Sincronizando conversas...
+            </p>
+          </div>
+        )}
+
+        {!connecting && status === 'WORKING' && info?.me && (
+          <div className="mt-4 p-3 rounded-xl text-sm" style={{ background: '#064e3b', color: '#34d399' }}>
             <p className="font-semibold">WhatsApp conectado</p>
             <p className="text-xs mt-1 opacity-80">
               {info.me.pushName} · {info.me.id.replace('@c.us', '')}
@@ -225,29 +279,19 @@ export default function WhatsAppSetupPage() {
             <button
               onClick={() => handleAction('start')}
               disabled={actionLoading}
-              className="bg-green-600 hover:bg-green-700 text-white text-sm font-semibold px-5 py-2 rounded-lg transition disabled:opacity-60"
+              className="bg-green-600 hover:bg-green-700 text-white text-sm font-semibold px-5 py-2 rounded-lg transition disabled:opacity-60 flex items-center gap-2"
             >
-              {actionLoading ? 'Iniciando...' : '▶ Conectar WhatsApp'}
+              {actionLoading ? <><Spinner size={14} color="white" /> Iniciando...</> : '▶ Conectar WhatsApp'}
             </button>
           )}
           {(status === 'WORKING' || status === 'STARTING' || status === 'SCAN_QR_CODE') && (
             <button
               onClick={() => handleAction('stop')}
               disabled={actionLoading}
-              className="text-sm font-semibold px-5 py-2 rounded-lg transition disabled:opacity-60"
+              className="text-sm font-semibold px-5 py-2 rounded-lg transition disabled:opacity-60 flex items-center gap-2"
               style={{ border: '1px solid #f87171', color: '#f87171' }}
             >
-              {actionLoading ? 'Parando...' : '⏹ Desconectar'}
-            </button>
-          )}
-          {status === 'FAILED' && (
-            <button
-              onClick={() => handleAction('start')}
-              disabled={actionLoading}
-              className="text-sm px-5 py-2 rounded-lg transition disabled:opacity-60"
-              style={{ border: '1px solid #2a3942', color: '#8696a0' }}
-            >
-              🔄 Tentar novamente
+              {actionLoading ? <><Spinner size={14} color="#f87171" /> Parando...</> : '⏹ Desconectar'}
             </button>
           )}
         </div>
@@ -261,23 +305,30 @@ export default function WhatsAppSetupPage() {
         >
           <p className="text-sm font-semibold mb-1" style={{ color: '#e9edef' }}>Escaneie o QR Code</p>
           <p className="text-xs mb-4" style={{ color: '#8696a0' }}>
-            Abra o WhatsApp no celular → Menu → Aparelhos conectados → Conectar aparelho
+            Abra o WhatsApp → Menu → Aparelhos conectados → Conectar aparelho
           </p>
+
           {qr ? (
-            <img
-              src={qr}
-              alt="QR Code WhatsApp"
-              className="mx-auto w-56 h-56 rounded-xl"
-              style={{ border: '1px solid #2a3942' }}
-            />
-          ) : (
-            <div
-              className="mx-auto w-56 h-56 rounded-xl flex items-center justify-center"
-              style={{ border: '2px dashed #2a3942' }}
-            >
-              <p className="text-xs" style={{ color: '#8696a0' }}>Carregando QR Code...</p>
+            <div className="relative inline-block">
+              <img
+                src={qr}
+                alt="QR Code WhatsApp"
+                className="mx-auto w-56 h-56 rounded-xl"
+                style={{ border: '1px solid #2a3942' }}
+              />
+              {/* Countdown badge */}
+              <div
+                className="absolute bottom-2 right-2 flex items-center gap-1 px-2 py-1 rounded-full text-xs font-mono"
+                style={{ background: '#0b141acc', color: '#8696a0' }}
+              >
+                <Spinner size={10} color="#8696a0" />
+                {qrCountdown}s
+              </div>
             </div>
+          ) : (
+            <QrSkeleton />
           )}
+
           <p className="text-xs mt-3" style={{ color: '#667781' }}>
             O QR Code atualiza automaticamente a cada 15 segundos
           </p>
@@ -301,12 +352,9 @@ export default function WhatsAppSetupPage() {
         </div>
       )}
 
-      {/* Importação de histórico (automática + manual) */}
+      {/* Importação */}
       {status === 'WORKING' && (
-        <div
-          className="rounded-xl p-6 mt-6"
-          style={{ background: '#202c33', border: '1px solid #2a3942' }}
-        >
+        <div className="rounded-xl p-6 mt-6" style={{ background: '#202c33', border: '1px solid #2a3942' }}>
           <p className="text-sm font-semibold mb-1" style={{ color: '#e9edef' }}>
             Sincronização de conversas
           </p>
@@ -315,13 +363,13 @@ export default function WhatsAppSetupPage() {
             Mensagens já importadas são ignoradas.
           </p>
 
-          {/* Progress bar */}
           {isImporting && (
             <div className="mb-4">
-              <div className="flex items-center justify-between mb-2">
+              <div className="flex items-center gap-2 mb-2">
+                <Spinner size={14} color="#53bdeb" />
                 <p className="text-xs font-semibold" style={{ color: '#e9edef' }}>{importStatus}</p>
                 {importProgress && (
-                  <span className="text-xs font-mono" style={{ color: '#53bdeb' }}>
+                  <span className="text-xs font-mono ml-auto" style={{ color: '#53bdeb' }}>
                     {importProgress.current}/{importProgress.total}
                   </span>
                 )}
@@ -330,7 +378,7 @@ export default function WhatsAppSetupPage() {
                 <>
                   <div className="w-full rounded-full h-2" style={{ background: '#2a3942' }}>
                     <div
-                      className="h-2 rounded-full transition-all duration-300"
+                      className="h-2 rounded-full transition-all duration-500"
                       style={{
                         width: `${(importProgress.current / importProgress.total) * 100}%`,
                         background: '#00a884',
@@ -346,11 +394,8 @@ export default function WhatsAppSetupPage() {
           )}
 
           {importResult && (
-            <div
-              className="mb-4 px-4 py-3 rounded-lg text-xs"
-              style={{ background: '#064e3b', color: '#34d399' }}
-            >
-              Importação concluída: <strong>{importResult.conversations}</strong> novas conversas,{' '}
+            <div className="mb-4 px-4 py-3 rounded-lg text-xs" style={{ background: '#064e3b', color: '#34d399' }}>
+              ✓ Importação concluída — <strong>{importResult.conversations}</strong> novas conversas,{' '}
               <strong>{importResult.messages}</strong> mensagens importadas.
             </div>
           )}
