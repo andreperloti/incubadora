@@ -5,14 +5,15 @@ const WA_LINK =
 
 const plans = [
   {
-    name: 'Starter',
-    price: 'R$ 197',
+    name: 'Essencial',
+    price: 'R$ 99',
+    cents: ',90',
     period: '/mês',
-    description: 'Ideal para negócios com até 3 atendentes.',
+    description: 'Ideal para oficinas e negócios com até 5 atendentes.',
     features: [
-      '3 atendentes',
+      '5 atendentes',
       'Fila de prioridade',
-      'Menu automático',
+      'Menu automático configurável',
       'Alertas de SLA',
       'Painel em tempo real',
       'Suporte por WhatsApp',
@@ -21,43 +22,28 @@ const plans = [
     cta: 'Começar agora',
   },
   {
-    name: 'Pro',
-    price: 'R$ 347',
+    name: 'Avançado',
+    price: 'R$ 139',
+    cents: ',90',
     period: '/mês',
-    description: 'Para equipes maiores que precisam de mais controle.',
+    description: 'Para equipes maiores que precisam de mais capacidade.',
     features: [
-      'Até 10 atendentes',
-      'Tudo do Starter',
+      '10 atendentes',
+      'Tudo do Essencial',
+      'Histórico completo de conversas',
       'Relatórios de atendimento',
-      'Histórico completo',
-      'SLA configurável por plano',
+      'SLA configurável',
       'Suporte prioritário',
     ],
     highlight: true,
-    cta: 'Escolher Pro',
-  },
-  {
-    name: 'Enterprise',
-    price: 'Sob consulta',
-    period: '',
-    description: 'Para grandes operações com necessidades específicas.',
-    features: [
-      'Atendentes ilimitados',
-      'Tudo do Pro',
-      'Múltiplos números WhatsApp',
-      'Integração via API',
-      'Onboarding dedicado',
-      'SLA garantido em contrato',
-    ],
-    highlight: false,
-    cta: 'Falar com comercial',
+    cta: 'Escolher Avançado',
   },
 ]
 
 export function Pricing() {
   return (
     <section id="planos" className="py-20 bg-gray-50">
-      <div className="max-w-6xl mx-auto px-6">
+      <div className="max-w-4xl mx-auto px-6">
         <div className="text-center mb-14">
           <span className="text-wa-green font-semibold text-sm uppercase tracking-widest">
             Planos e preços
@@ -70,50 +56,53 @@ export function Pricing() {
           </p>
         </div>
 
-        <div className="grid md:grid-cols-3 gap-6">
+        <div className="grid md:grid-cols-2 gap-8">
           {plans.map((plan, i) => (
             <div
               key={i}
               className={`rounded-2xl p-8 flex flex-col ${
                 plan.highlight
-                  ? 'bg-wa-dark text-white shadow-2xl scale-105 border-0'
-                  : 'bg-white border border-gray-100'
+                  ? 'bg-[#0b141a] text-white shadow-2xl border-0'
+                  : 'bg-white border border-gray-100 shadow-sm'
               }`}
             >
               {plan.highlight && (
-                <span className="self-start bg-wa-green text-white text-xs font-bold px-3 py-1 rounded-full mb-4">
+                <span className="self-start bg-[#25D366] text-[#0b141a] text-xs font-bold px-3 py-1 rounded-full mb-4">
                   ⭐ Mais popular
                 </span>
               )}
-              <h3 className={`text-xl font-bold mb-1 ${plan.highlight ? 'text-white' : 'text-gray-900'}`}>
+              <h3 className={`text-xl font-bold mb-1 ${plan.highlight ? 'text-[#e9edef]' : 'text-gray-900'}`}>
                 {plan.name}
               </h3>
-              <p className={`text-sm mb-4 ${plan.highlight ? 'text-white/70' : 'text-gray-500'}`}>
+              <p className={`text-sm mb-5 ${plan.highlight ? 'text-[#aebac1]' : 'text-gray-500'}`}>
                 {plan.description}
               </p>
-              <div className="mb-6">
-                <span className={`text-4xl font-extrabold ${plan.highlight ? 'text-white' : 'text-gray-900'}`}>
+              <div className="mb-6 flex items-end gap-0.5">
+                <span className={`text-4xl font-extrabold ${plan.highlight ? 'text-[#e9edef]' : 'text-gray-900'}`}>
                   {plan.price}
                 </span>
-                <span className={`text-sm ${plan.highlight ? 'text-white/70' : 'text-gray-400'}`}>
+                <span className={`text-xl font-bold mb-0.5 ${plan.highlight ? 'text-[#e9edef]' : 'text-gray-900'}`}>
+                  {plan.cents}
+                </span>
+                <span className={`text-sm mb-1 ml-1 ${plan.highlight ? 'text-[#aebac1]' : 'text-gray-400'}`}>
                   {plan.period}
                 </span>
               </div>
               <ul className="space-y-3 mb-8 flex-1">
                 {plan.features.map((f, j) => (
                   <li key={j} className="flex items-center gap-2 text-sm">
-                    <span className={`text-base ${plan.highlight ? 'text-wa-green' : 'text-wa-green'}`}>✓</span>
-                    <span className={plan.highlight ? 'text-white/90' : 'text-gray-600'}>{f}</span>
+                    <span className="text-[#25D366] font-bold">✓</span>
+                    <span className={plan.highlight ? 'text-[#aebac1]' : 'text-gray-600'}>{f}</span>
                   </li>
                 ))}
               </ul>
               <Link
                 href={WA_LINK}
                 target="_blank"
-                className={`block text-center font-bold py-3 rounded-full transition ${
+                className={`block text-center font-bold py-3 rounded-full transition text-sm ${
                   plan.highlight
-                    ? 'bg-white text-wa-dark hover:bg-wa-light'
-                    : 'bg-wa-green text-white hover:bg-wa-dark'
+                    ? 'bg-[#25D366] text-[#0b141a] hover:bg-[#20bd5a]'
+                    : 'bg-[#0b141a] text-white hover:bg-[#202c33]'
                 }`}
               >
                 {plan.cta}
@@ -121,6 +110,13 @@ export function Pricing() {
             </div>
           ))}
         </div>
+
+        <p className="text-center text-gray-400 text-sm mt-8">
+          Precisa de mais de 10 atendentes?{' '}
+          <Link href={WA_LINK} target="_blank" className="text-wa-green font-semibold hover:underline">
+            Fale com a gente
+          </Link>
+        </p>
       </div>
     </section>
   )
