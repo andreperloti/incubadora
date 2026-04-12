@@ -182,6 +182,55 @@ export function buildSignedMessage(senderName: string, message: string): string 
   return `*${senderName}:*\n${message}`
 }
 
+// Envia mensagem de voz (PTT) via WAHA usando URL acessível pelo container
+// Tenta /api/sendVoice; se não suportado (404), tenta /api/sendFile como fallback
+export async function sendWhatsAppVoice({
+  session,
+  to,
+  audioUrl,
+  mimetype = 'audio/ogg; codecs=opus',
+}: {
+  session: string
+  to: string
+  audioUrl: string   // URL acessível pelo WAHA para baixar o áudio
+  mimetype?: string
+}): Promise<SendMessageResult> {
+  const ext = mimetype.includes('webm') ? 'webm' : mimetype.includes('mp4') ? 'mp4' : 'ogg'
+  const body = JSON.stringify({
+    session,
+    chatId: toChatId(to),
+    file: { url: audioUrl, mimetype, filename: `voice.${ext}` },
+    caption: '',
+  })
+
+  const tryEndpoint = async (endpoint: string): Promise<Response> =>
+    fetch(`${WAHA_API_URL}${endpoint}`, {
+      method: 'POST',
+      headers: wahaHeaders(),
+      body,
+    })
+
+  try {
+    // Áudio já convertido para OGG/Opus pelo servidor — sendVoice envia como PTT
+    let res = await tryEndpoint('/api/sendVoice')
+    if (!res.ok) res = await tryEndpoint('/api/sendFile')
+
+    const data = await res.json()
+
+    if (!res.ok) {
+      return { success: false, error: data.message || 'Erro ao enviar voz' }
+    }
+
+    const messageId = typeof data.id === 'object'
+      ? (data.id?._serialized ?? data.id?.id ?? null)
+      : (data.id ?? null)
+
+    return { success: true, messageId }
+  } catch (err) {
+    return { success: false, error: String(err) }
+  }
+}
+
 // ─── Gerenciamento de Sessões WAHA ──────────────────────────────────────────
 
 export type WahaSessionStatus =
@@ -378,6 +427,34 @@ export async function getWahaChatName(
       return id === chatId
     })
     return chat?.name || null
+  } catch {
+    return null
+  }
+}
+
+// Busca a URL de mídia de uma mensagem via WAHA (downloadMedia=true)
+// Retorna { url, mimetype } ou null se não encontrar
+export async function getWahaMessageMedia(
+  session: string,
+  chatId: string,
+  waMessageId: string
+): Promise<{ url: string; mimetype: string } | null> {
+  try {
+    const res = await fetch(
+      `${WAHA_API_URL}/api/${session}/chats/${encodeURIComponent(chatId)}/messages?limit=20&downloadMedia=true`,
+      { headers: wahaHeaders() }
+    )
+    if (!res.ok) return null
+    const msgs: any[] = await res.json()
+    const msg = msgs.find((m: any) => {
+      const id = typeof m.id === 'object' ? m.id?._serialized : m.id
+      return id === waMessageId
+    })
+    if (!msg?.media?.url) return null
+    // Normaliza para apontar ao próprio WAHA (independente do host na URL original)
+    const wahaBase = WAHA_API_URL.replace(/\/$/, '')
+    const url = msg.media.url.replace(/^https?:\/\/[^/]+/, wahaBase)
+    return { url, mimetype: msg.media.mimetype || 'audio/ogg' }
   } catch {
     return null
   }

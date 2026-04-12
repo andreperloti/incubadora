@@ -4,6 +4,7 @@ import { useEffect, useRef, useState, useCallback, useMemo } from 'react'
 import type { Session } from 'next-auth'
 import clsx from 'clsx'
 import { LeftNavStrip } from '@/components/LeftNavStrip'
+import { AudioPlayer } from '@/components/AudioPlayer'
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -32,6 +33,9 @@ type Message = {
   content: string
   sentAt: string
   senderUser: { id: number; name: string } | null
+  mediaUrl: string | null
+  mediaType: string | null
+  waMessageId: string | null
 }
 
 type ConvDetail = {
@@ -160,11 +164,21 @@ function ChatPanel({
   const bottomRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
 
+  // Gravação de áudio
+  const [recording, setRecording] = useState(false)
+  const [recordedBlob, setRecordedBlob] = useState<Blob | null>(null)
+  const [recordedUrl, setRecordedUrl] = useState<string | null>(null)
+  const [recSeconds, setRecSeconds] = useState(0)
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null)
+  const recTimerRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const recordedUrlRef = useRef<string | null>(null)
+
   // Reset ao trocar de conversa
   useEffect(() => {
     setOptimisticMessages([])
     setStatus(conversation.status)
     setText('')
+    discardRecording()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [conversation.id])
 
@@ -211,6 +225,80 @@ function ChatPanel({
     }
     setSending(false)
     textareaRef.current?.focus()
+  }
+
+  async function startRecording() {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+      const mimeType = MediaRecorder.isTypeSupported('audio/ogg;codecs=opus')
+        ? 'audio/ogg;codecs=opus'
+        : 'audio/webm'
+      const mr = new MediaRecorder(stream, { mimeType })
+      const chunks: BlobPart[] = []
+      mr.ondataavailable = (e) => { if (e.data.size > 0) chunks.push(e.data) }
+      mr.onstop = () => {
+        const blob = new Blob(chunks, { type: mimeType })
+        const url = URL.createObjectURL(blob)
+        recordedUrlRef.current = url
+        setRecordedBlob(blob)
+        setRecordedUrl(url)
+        stream.getTracks().forEach((t) => t.stop())
+      }
+      mr.start()
+      mediaRecorderRef.current = mr
+      setRecording(true)
+      setRecSeconds(0)
+      recTimerRef.current = setInterval(() => setRecSeconds((s) => s + 1), 1000)
+    } catch {
+      // usuário negou permissão ou mic indisponível
+    }
+  }
+
+  function stopRecording() {
+    mediaRecorderRef.current?.stop()
+    if (recTimerRef.current) clearInterval(recTimerRef.current)
+    setRecording(false)
+  }
+
+  function discardRecording() {
+    if (mediaRecorderRef.current?.state === 'recording') {
+      mediaRecorderRef.current.stop()
+    }
+    if (recTimerRef.current) clearInterval(recTimerRef.current)
+    if (recordedUrlRef.current) {
+      URL.revokeObjectURL(recordedUrlRef.current)
+      recordedUrlRef.current = null
+    }
+    setRecording(false)
+    setRecordedBlob(null)
+    setRecordedUrl(null)
+    setRecSeconds(0)
+    mediaRecorderRef.current = null
+  }
+
+  async function sendAudio() {
+    if (!recordedBlob || sending) return
+    setSending(true)
+    const fd = new FormData()
+    fd.append('conversationId', String(conversation.id))
+    fd.append('audio', recordedBlob, 'voice.ogg')
+    const res = await fetch('/api/messages/audio', { method: 'POST', body: fd })
+    if (res.ok) {
+      const data = await res.json()
+      if (data.message) {
+        setOptimisticMessages((prev) =>
+          prev.some((m) => m.id === data.message.id) ? prev : [...prev, data.message]
+        )
+        onNewMessage(data.message)
+        setStatus('in_progress')
+      }
+    }
+    discardRecording()
+    setSending(false)
+  }
+
+  function formatRecTime(s: number) {
+    return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`
   }
 
   async function handleResolve() {
@@ -320,7 +408,17 @@ function ChatPanel({
                       {prefix}:
                     </p>
                   )}
-                  <p className="whitespace-pre-wrap break-words leading-snug">{body}</p>
+                  {msg.mediaUrl && msg.mediaType?.startsWith('audio') ? (
+                    <AudioPlayer
+                      src={msg.mediaUrl.startsWith('/') ? msg.mediaUrl : `/api/media?url=${encodeURIComponent(msg.mediaUrl)}`}
+                      seed={msg.waMessageId ?? msg.id.toString()}
+                      isOutgoing={msg.direction === 'out'}
+                      avatarUrl={conversation.customerAvatar}
+                      contactName={conversation.customerName ?? conversation.customerPhone}
+                    />
+                  ) : (
+                    <p className="whitespace-pre-wrap break-words leading-snug">{body}</p>
+                  )}
                   <p className="text-right text-xs mt-1 ml-4" style={{ color: '#8696a0' }}>
                     {formatTime(msg.sentAt)}
                   </p>
@@ -336,46 +434,126 @@ function ChatPanel({
         className="flex-shrink-0 px-3 py-2.5 flex items-end gap-2"
         style={{ background: '#202c33' }}
       >
-          <div
-            className="flex-1 rounded-full px-4 py-2.5 flex items-end gap-2"
-            style={{ background: '#2a3942', minHeight: '44px' }}
-          >
-            <span className="text-xs flex-shrink-0 pb-0.5 whitespace-nowrap" style={{ color: '#8696a0' }}>
-              {userName}:
-            </span>
-            <textarea
-              ref={textareaRef}
-              value={text}
-              onChange={(e) => {
-                setText(e.target.value)
-                e.target.style.height = 'auto'
-                e.target.style.height = Math.min(e.target.scrollHeight, 120) + 'px'
-              }}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' && !e.shiftKey) {
-                  e.preventDefault()
-                  handleSend()
-                }
-              }}
-              placeholder="Digite uma mensagem"
-              rows={1}
-              className="flex-1 bg-transparent text-sm focus:outline-none resize-none leading-5"
-              style={{ color: '#e9edef', maxHeight: '120px' }}
-            />
-          </div>
-          <button
-            onClick={handleSend}
-            disabled={sending || !text.trim()}
-            className="flex-shrink-0 w-10 h-10 rounded-full bg-green-600 hover:bg-green-700 flex items-center justify-center transition disabled:opacity-40"
-          >
-            {sending ? (
-              <span className="text-white text-xs">...</span>
-            ) : (
-              <svg viewBox="0 0 24 24" className="w-5 h-5 fill-white ml-0.5">
-                <path d="M1.101 21.757L23.8 12.028 1.101 2.3l.011 7.912 13.623 1.816-13.623 1.817-.011 7.912z" />
+        {recording ? (
+          /* ── Estado: gravando ── */
+          <>
+            <div
+              className="flex-1 rounded-full px-4 py-2.5 flex items-center gap-3"
+              style={{ background: '#2a3942', minHeight: '44px' }}
+            >
+              <span className="w-2.5 h-2.5 rounded-full bg-red-500 animate-pulse flex-shrink-0" />
+              <span className="text-sm tabular-nums" style={{ color: '#e9edef' }}>
+                {formatRecTime(recSeconds)}
+              </span>
+              <span className="text-sm" style={{ color: '#8696a0' }}>Gravando...</span>
+            </div>
+            <button
+              onClick={stopRecording}
+              className="flex-shrink-0 w-10 h-10 rounded-full flex items-center justify-center transition hover:opacity-80"
+              style={{ background: '#2a3942' }}
+              aria-label="Parar gravação"
+            >
+              <svg viewBox="0 0 24 24" className="w-4 h-4" fill="#e9edef">
+                <rect x="4" y="4" width="16" height="16" rx="2" />
               </svg>
-            )}
-          </button>
+            </button>
+          </>
+        ) : recordedBlob ? (
+          /* ── Estado: preview do áudio gravado ── */
+          <>
+            <div
+              className="flex-1 rounded-2xl px-3 py-2"
+              style={{ background: '#2a3942' }}
+            >
+              <AudioPlayer
+                src={recordedUrl!}
+                seed={`preview-${recSeconds}`}
+                isOutgoing={true}
+              />
+            </div>
+            <button
+              onClick={discardRecording}
+              className="flex-shrink-0 w-10 h-10 rounded-full flex items-center justify-center transition hover:opacity-80"
+              style={{ background: '#2a3942' }}
+              aria-label="Descartar áudio"
+            >
+              <svg viewBox="0 0 24 24" className="w-4 h-4" fill="#e9edef">
+                <path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z" />
+              </svg>
+            </button>
+            <button
+              onClick={sendAudio}
+              disabled={sending}
+              className="flex-shrink-0 w-10 h-10 rounded-full bg-green-600 hover:bg-green-700 flex items-center justify-center transition disabled:opacity-40"
+              aria-label="Enviar áudio"
+            >
+              {sending ? (
+                <span className="text-white text-xs">...</span>
+              ) : (
+                <svg viewBox="0 0 24 24" className="w-5 h-5 fill-white ml-0.5">
+                  <path d="M1.101 21.757L23.8 12.028 1.101 2.3l.011 7.912 13.623 1.816-13.623 1.817-.011 7.912z" />
+                </svg>
+              )}
+            </button>
+          </>
+        ) : (
+          /* ── Estado: input normal ── */
+          <>
+            <div
+              className="flex-1 rounded-full px-4 py-2.5 flex items-end gap-2"
+              style={{ background: '#2a3942', minHeight: '44px' }}
+            >
+              <span className="text-xs flex-shrink-0 pb-0.5 whitespace-nowrap" style={{ color: '#8696a0' }}>
+                {userName}:
+              </span>
+              <textarea
+                ref={textareaRef}
+                value={text}
+                onChange={(e) => {
+                  setText(e.target.value)
+                  e.target.style.height = 'auto'
+                  e.target.style.height = Math.min(e.target.scrollHeight, 120) + 'px'
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && !e.shiftKey) {
+                    e.preventDefault()
+                    handleSend()
+                  }
+                }}
+                placeholder="Digite uma mensagem"
+                rows={1}
+                className="flex-1 bg-transparent text-sm focus:outline-none resize-none leading-5"
+                style={{ color: '#e9edef', maxHeight: '120px' }}
+              />
+            </div>
+            {/* Botão microfone */}
+            <button
+              onClick={startRecording}
+              disabled={sending}
+              className="flex-shrink-0 w-10 h-10 rounded-full flex items-center justify-center transition hover:opacity-80 disabled:opacity-40"
+              style={{ background: '#2a3942' }}
+              aria-label="Gravar áudio"
+            >
+              <svg viewBox="0 0 24 24" className="w-5 h-5" fill="#8696a0">
+                <path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3zm-1-9c0-.55.45-1 1-1s1 .45 1 1v6c0 .55-.45 1-1 1s-1-.45-1-1V5zm6 6c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z" />
+              </svg>
+            </button>
+            {/* Botão enviar texto */}
+            <button
+              onClick={handleSend}
+              disabled={sending || !text.trim()}
+              className="flex-shrink-0 w-10 h-10 rounded-full bg-green-600 hover:bg-green-700 flex items-center justify-center transition disabled:opacity-40"
+            >
+              {sending ? (
+                <span className="text-white text-xs">...</span>
+              ) : (
+                <svg viewBox="0 0 24 24" className="w-5 h-5 fill-white ml-0.5">
+                  <path d="M1.101 21.757L23.8 12.028 1.101 2.3l.011 7.912 13.623 1.816-13.623 1.817-.011 7.912z" />
+                </svg>
+              )}
+            </button>
+          </>
+        )}
       </div>
     </div>
   )

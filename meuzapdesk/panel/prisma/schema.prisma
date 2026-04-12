@@ -85,6 +85,8 @@ model Message {
   senderUserId   Int?         @map("sender_user_id")
   sentAt         DateTime     @default(now()) @map("sent_at")
   waMessageId    String?      @map("wa_message_id")
+  mediaUrl       String?      @map("media_url")   // URL do arquivo de mídia (áudio, imagem, etc.)
+  mediaType      String?      @map("media_type")  // mimetype, ex: audio/ogg
   conversation   Conversation @relation(fields: [conversationId], references: [id])
   senderUser     User?        @relation(fields: [senderUserId], references: [id])
 

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { verifyWebhookSecret, getWahaContactName, getWahaChatName, parsePhoneFromContactName, getWahaContactAvatar, getWahaContactPhone, buildMenuMessage, buildOptionAutoReply, sendWhatsAppMessage, POLL_OPTIONS } from '@/lib/whatsapp'
+import { verifyWebhookSecret, getWahaContactName, getWahaChatName, parsePhoneFromContactName, getWahaContactAvatar, getWahaContactPhone, buildOptionAutoReply, sendWhatsAppMessage, POLL_OPTIONS, getWahaMessageMedia } from '@/lib/whatsapp'
 import { prisma } from '@/lib/db'
 import { broadcastToBusinessClients } from '@/lib/sse'
 
@@ -29,6 +29,7 @@ export async function POST(req: NextRequest) {
   const sessionName: string = body.session
   const payload = body.payload
 
+
   // Ignora mensagens enviadas por nós mesmos, de grupos, newsletters ou broadcasts
   const rawFrom: string = payload?.from ?? ''
   if (
@@ -44,15 +45,38 @@ export async function POST(req: NextRequest) {
   const phone = rawFrom.endsWith('@c.us') ? rawFrom.replace('@c.us', '') : rawFrom
   const notifyName: string = payload?.notifyName || payload?.pushName || ''
   const text: string = payload?.body ?? ''
-  const waMessageId: string = payload?.id ?? ''
+  // payload.id pode ser objeto {_serialized, id, ...} no engine WEBJS
+  const waMessageId: string = typeof payload?.id === 'object'
+    ? (payload.id?._serialized ?? payload.id?.id ?? '')
+    : (payload?.id ?? '')
   // Timestamp real da mensagem no WhatsApp (Unix segundos → Date)
   const waTimestamp: Date = payload?.timestamp
     ? new Date(payload.timestamp * 1000)
     : new Date()
 
-  if (!phone || !text) {
+  // Detecta mensagens de mídia — no engine WEBJS, type fica em payload._data.type
+  const msgType: string = payload?.type ?? payload?._data?.type ?? ''
+  const hasMedia: boolean = payload?.hasMedia === true
+  const isAudio = hasMedia && (msgType === 'ptt' || msgType === 'audio' || msgType === 'voice')
+
+  // Ignora se não tem texto nem mídia reconhecida
+  if (!phone || (!text && !isAudio)) {
     return NextResponse.json({ status: 'ignored' })
   }
+
+  // Para áudio: busca URL da mídia via API do WAHA (webhook não inclui media sem config especial)
+  let mediaUrl: string | null = payload?.media?.url ?? null
+  let mediaType: string | null = payload?.media?.mimetype ?? null
+  if (isAudio && !mediaUrl && waMessageId) {
+    const media = await getWahaMessageMedia(sessionName, rawFrom, waMessageId)
+    if (media) {
+      mediaUrl = media.url
+      mediaType = media.mimetype
+    }
+  }
+
+  // Para áudio sem texto, usa placeholder descritivo para navegação no menu
+  const effectiveText = text || (isAudio ? '🎵 Áudio' : '')
 
   // Encontra o negócio pela sessão WAHA
   const business = await prisma.business.findFirst({
@@ -85,7 +109,8 @@ export async function POST(req: NextRequest) {
   return handleMessage({
     business, sessionName, phone,
     rawChatId: rawFrom, customerName,
-    text, waMessageId, waTimestamp,
+    text: effectiveText, waMessageId, waTimestamp,
+    mediaUrl, mediaType,
   })
 }
 
@@ -165,7 +190,7 @@ function saveBotMessage(conversationId: number, content: string, businessId: num
 }
 
 async function handleMessage({
-  business, sessionName, phone, rawChatId, customerName, text, waMessageId, waTimestamp,
+  business, sessionName, phone, rawChatId, customerName, text, waMessageId, waTimestamp, mediaUrl, mediaType,
 }: {
   business: { id: number; name: string }
   sessionName: string
@@ -175,6 +200,8 @@ async function handleMessage({
   text: string
   waMessageId: string
   waTimestamp: Date
+  mediaUrl: string | null
+  mediaType: string | null
 }) {
   const realPhone = await getWahaContactPhone(sessionName, rawChatId)
 
@@ -331,6 +358,14 @@ async function handleMessage({
 
   // ── 1. Salva a mensagem (idempotente)
   let savedMessage: any
+  // Normaliza a URL de mídia para sempre apontar ao WAHA (independente do host na URL original)
+  // Ex: http://host.docker.internal:3000/api/files/... ou http://localhost:3000/api/files/...
+  //     → http://localhost:3002/api/files/...
+  const wahaApiUrl = (process.env.WAHA_API_URL || 'http://localhost:3002').replace(/\/$/, '')
+  const resolvedMediaUrl = mediaUrl
+    ? mediaUrl.replace(/^https?:\/\/[^/]+/, wahaApiUrl)
+    : null
+
   if (waMessageId) {
     const dup = await prisma.message.findFirst({
       where: { waMessageId },
@@ -338,12 +373,12 @@ async function handleMessage({
     })
     if (dup) return NextResponse.json({ status: 'ok' })
     savedMessage = await prisma.message.create({
-      data: { conversationId: conversation.id, direction: 'in', content: text, waMessageId, sentAt: waTimestamp },
+      data: { conversationId: conversation.id, direction: 'in', content: text, waMessageId, sentAt: waTimestamp, mediaUrl: resolvedMediaUrl, mediaType },
       include: { senderUser: { select: { id: true, name: true } } },
     })
   } else {
     savedMessage = await prisma.message.create({
-      data: { conversationId: conversation.id, direction: 'in', content: text, sentAt: waTimestamp },
+      data: { conversationId: conversation.id, direction: 'in', content: text, sentAt: waTimestamp, mediaUrl: resolvedMediaUrl, mediaType },
       include: { senderUser: { select: { id: true, name: true } } },
     })
   }
