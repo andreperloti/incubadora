@@ -18,6 +18,7 @@ type ConvSummary = {
   status: string
   unreadCount: number
   optionSelected: number | null
+  sector: string | null
   lastCustomerMessageAt: string | null
   customerWaitingSince: string | null
   assignedUser: { id: number; name: string } | null
@@ -143,11 +144,13 @@ function ChatPanel({
   userName,
   onResolve,
   onNewMessage,
+  onBack,
 }: {
   conversation: ConvDetail
   userName: string
   onResolve: () => void
   onNewMessage: (msg: Message) => void
+  onBack?: () => void
 }) {
   // Mensagens otimistas: enviadas pelo agente mas ainda não confirmadas pelo poll
   const [optimisticMessages, setOptimisticMessages] = useState<Message[]>([])
@@ -225,6 +228,17 @@ function ChatPanel({
         className="flex-shrink-0 px-4 py-3 flex items-center gap-3 border-b"
         style={{ background: '#202c33', borderColor: '#2a3942' }}
       >
+        {onBack && (
+          <button
+            onClick={onBack}
+            className="lg:hidden flex-shrink-0 -ml-1 p-1.5 rounded-full hover:bg-white/10 transition"
+            aria-label="Voltar"
+          >
+            <svg viewBox="0 0 24 24" className="w-5 h-5 fill-current" style={{ color: '#aebac1' }}>
+              <path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z" />
+            </svg>
+          </button>
+        )}
         <ContactAvatar
           name={displayName}
           avatarUrl={conversation.customerAvatar}
@@ -395,10 +409,12 @@ function EmptyState() {
 export function AtendimentoClient({
   conversations: initial,
   recentConversations: initialRecent,
+  menuFilters,
   session,
 }: {
   conversations: ConvSummary[]
   recentConversations: ConvSummary[]
+  menuFilters: { order: number; label: string }[]
   session: Session
 }) {
   const user = session.user as any
@@ -410,6 +426,10 @@ export function AtendimentoClient({
   const [selectedId, setSelectedId] = useState<number | null>(null)
   const [activeConv, setActiveConv] = useState<ConvDetail | null>(null)
   const [loadingConv, setLoadingConv] = useState(false)
+  const [mobileView, setMobileView] = useState<'list' | 'chat'>('list')
+  const [mobileToast, setMobileToast] = useState<{ id: number; name: string; content: string } | null>(null)
+  const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const [activeFilter, setActiveFilter] = useState<number | null>(null)
   const activeIdRef = useRef<number | null>(null)
   const loadConversationRef = useRef<((id: number, silent?: boolean) => Promise<void>) | null>(null)
   const audioCtxRef = useRef<AudioContext | null>(null)
@@ -613,6 +633,12 @@ export function AtendimentoClient({
                 const conv = prev.find((c) => c.id === event.conversationId)
                 const name = conv?.customerName || conv?.customerRealPhone || conv?.customerPhone || 'Novo cliente'
                 showBrowserNotification(name, msg.content)
+                // Toast mobile: só quando está no chat de outra conversa
+                if (event.conversationId !== activeIdRef.current) {
+                  setMobileToast({ id: event.conversationId, name, content: msg.content })
+                  if (toastTimerRef.current) clearTimeout(toastTimerRef.current)
+                  toastTimerRef.current = setTimeout(() => setMobileToast(null), 5000)
+                }
                 return prev
               })
             }
@@ -646,6 +672,7 @@ export function AtendimentoClient({
   function handleResolve() {
     setSelectedId(null)
     setActiveConv(null)
+    setMobileView('list')
     refreshList()
     refreshRecent()
   }
@@ -653,12 +680,15 @@ export function AtendimentoClient({
   // Zera unread localmente ao abrir a conversa (o servidor zera no GET /api/conversations/:id)
   function handleSelectConv(id: number) {
     setSelectedId(id)
+    setMobileView('chat')
+    setMobileToast(null)
     setConversations((prev) =>
       prev.map((c) => (c.id === id ? { ...c, unreadCount: 0 } : c))
     )
   }
 
   const filtered = conversations.filter((c) => {
+    if (activeFilter !== null && c.optionSelected !== activeFilter) return false
     const term = search.toLowerCase()
     if (!term) return true
     return (
@@ -668,30 +698,61 @@ export function AtendimentoClient({
   })
 
   return (
-    <div className="flex h-screen overflow-hidden" style={{ background: '#111b21' }}>
+    <div className="flex h-screen overflow-hidden relative" style={{ background: '#111b21' }}>
+
+      {/* ── Toast mobile: nova mensagem em outra conversa ────────────────────── */}
+      {mobileToast && (
+        <div className="lg:hidden absolute top-3 left-1/2 -translate-x-1/2 z-50 w-[calc(100%-2rem)]">
+          <button
+            onClick={() => { handleSelectConv(mobileToast.id); setMobileToast(null) }}
+            className="w-full flex items-start gap-3 px-4 py-3 rounded-xl shadow-xl text-left"
+            style={{ background: '#202c33', border: '1px solid #2a3942' }}
+          >
+            <span className="text-lg flex-shrink-0">💬</span>
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-semibold" style={{ color: '#e9edef' }}>{mobileToast.name}</p>
+              <p className="text-xs truncate mt-0.5" style={{ color: '#aebac1' }}>{mobileToast.content}</p>
+            </div>
+            <button
+              onClick={(e) => { e.stopPropagation(); setMobileToast(null) }}
+              className="flex-shrink-0 text-xs px-1 py-0.5 rounded"
+              style={{ color: '#8696a0' }}
+            >
+              ✕
+            </button>
+          </button>
+        </div>
+      )}
 
       {/* ── Left nav strip ──────────────────────────────────────────────────── */}
-      <LeftNavStrip
-        user={{
-          name: user.name,
-          image: user.image,
-          isOwner,
-          businessName: user.businessName,
-        }}
-        activePage="atendimento"
-      />
+      <div className={clsx('lg:flex', mobileView === 'chat' ? 'hidden' : 'flex')}>
+        <LeftNavStrip
+          user={{
+            name: user.name,
+            image: user.image,
+            isOwner,
+            businessName: user.businessName,
+          }}
+          activePage="atendimento"
+        />
+      </div>
 
       {/* ── Sidebar (chat list) ──────────────────────────────────────────────── */}
       <div
-        className="flex-shrink-0 w-[440px] flex flex-col overflow-hidden"
+        className={clsx(
+          'flex flex-col overflow-hidden min-w-0',
+          'flex-1 lg:flex-none lg:w-[440px] lg:flex-shrink-0',
+          mobileView === 'chat' ? 'hidden lg:flex' : 'flex'
+        )}
         style={{ background: '#111b21', borderRight: '1px solid #2a3942' }}
       >
         {/* Sidebar header */}
         <div
-          className="flex-shrink-0 px-4 py-3"
+          className="flex-shrink-0 px-4 pt-3 pb-3"
           style={{ background: '#202c33', borderBottom: '1px solid #2a3942' }}
         >
-          <div className="flex items-center justify-between mb-2">
+          {/* Título + badge */}
+          <div className="flex items-center justify-between mb-3">
             <div className="flex items-center gap-2">
               <span className="font-bold text-sm text-gray-100">MeuZapDesk</span>
               <span className="text-xs" style={{ color: '#8696a0' }}>— {user.businessName}</span>
@@ -702,6 +763,7 @@ export function AtendimentoClient({
               </span>
             )}
           </div>
+
           {/* Search */}
           <div
             className="flex items-center gap-2 rounded-lg px-3 py-1.5"
@@ -719,6 +781,49 @@ export function AtendimentoClient({
               style={{ color: '#e9edef' }}
             />
           </div>
+
+          {/* Filter pills */}
+          {menuFilters.length > 0 && (
+            <div className="flex items-center gap-1.5 mt-3 overflow-x-auto pb-0.5" style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}>
+              <button
+                onClick={() => setActiveFilter(null)}
+                className="flex-shrink-0 px-3 py-1 rounded-full text-xs font-semibold transition border"
+                style={
+                  activeFilter === null
+                    ? { background: '#1a5c3a', color: '#25d366', borderColor: '#25d366' }
+                    : { background: 'transparent', color: '#8696a0', borderColor: '#3d5060' }
+                }
+              >
+                Todos
+              </button>
+              {menuFilters.map((f) => {
+                const isActive = activeFilter === f.order
+                const count = conversations.filter((c) => c.optionSelected === f.order).length
+                return (
+                  <button
+                    key={f.order}
+                    onClick={() => setActiveFilter(isActive ? null : f.order)}
+                    className="flex-shrink-0 flex items-center gap-1 px-3 py-1 rounded-full text-xs font-semibold transition border"
+                    style={
+                      isActive
+                        ? { background: '#1a5c3a', color: '#25d366', borderColor: '#25d366' }
+                        : { background: 'transparent', color: '#8696a0', borderColor: '#3d5060' }
+                    }
+                  >
+                    {f.label}
+                    {count > 0 && (
+                      <span
+                        className="ml-0.5 px-1.5 py-0.5 rounded-full text-[10px] font-bold"
+                        style={isActive ? { background: '#25d36633', color: '#25d366' } : { background: '#2a3942', color: '#667781' }}
+                      >
+                        {count}
+                      </span>
+                    )}
+                  </button>
+                )
+              })}
+            </div>
+          )}
         </div>
 
         {/* Conversation list */}
@@ -726,14 +831,14 @@ export function AtendimentoClient({
           {filtered.length === 0 && recentConversations.length === 0 ? (
             <div className="flex flex-col items-center justify-center h-full text-sm py-8" style={{ color: '#8696a0' }}>
               <p className="text-2xl mb-2">✅</p>
-              <p>Sem conversas em aberto</p>
+              <p>{activeFilter !== null ? 'Sem conversas em aberto para esse filtro.' : 'Sem conversas em aberto'}</p>
             </div>
           ) : (
             <>
               {filtered.length === 0 && (
                 <div className="flex flex-col items-center py-6 text-sm" style={{ color: '#8696a0' }}>
                   <p className="text-2xl mb-1">✅</p>
-                  <p>Sem conversas em aberto</p>
+                  <p>{activeFilter !== null ? 'Sem conversas em aberto para esse filtro.' : 'Sem conversas em aberto'}</p>
                 </div>
               )}
 
@@ -800,9 +905,20 @@ export function AtendimentoClient({
                           )}
                         </div>
                       </div>
-                      {conv.optionSelected && (
-                        <p className="text-xs truncate mt-0.5" style={{ color: '#667781' }}>
-                          {OPTION_LABEL[conv.optionSelected]}
+                      {(conv.sector || conv.optionSelected) && (
+                        <p className="mt-1">
+                          {conv.sector ? (
+                            <span
+                              className="text-xs px-1.5 py-0.5 rounded-full font-medium"
+                              style={{ background: '#1a3a4a', color: '#53bdeb', fontSize: '10px' }}
+                            >
+                              {conv.sector}
+                            </span>
+                          ) : (
+                            <span className="text-xs" style={{ color: '#667781' }}>
+                              {OPTION_LABEL[conv.optionSelected!]}
+                            </span>
+                          )}
                         </p>
                       )}
                     </div>
@@ -873,7 +989,12 @@ export function AtendimentoClient({
       </div>
 
       {/* ── Chat panel ──────────────────────────────────────────────────────── */}
-      <div className="flex-1 flex flex-col overflow-hidden">
+      <div
+        className={clsx(
+          'flex-1 flex flex-col overflow-hidden min-w-0',
+          mobileView === 'list' ? 'hidden lg:flex' : 'flex'
+        )}
+      >
         {loadingConv ? (
           <div className="flex items-center justify-center h-full" style={{ background: '#0b141a' }}>
             <p className="text-sm" style={{ color: '#8696a0' }}>Carregando...</p>
@@ -884,6 +1005,7 @@ export function AtendimentoClient({
             conversation={activeConv}
             userName={user.name}
             onResolve={handleResolve}
+            onBack={() => setMobileView('list')}
             onNewMessage={(msg) =>
               setActiveConv((prev) =>
                 prev ? { ...prev, messages: [...prev.messages, msg] } : prev

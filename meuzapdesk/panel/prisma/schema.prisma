@@ -60,6 +60,7 @@ model Conversation {
   customerWaitingSince  DateTime?        @map("customer_waiting_since")
   resolvedAt            DateTime?        @map("resolved_at")
   currentMenuId         Int?             @map("current_menu_id")
+  sector                String?          // setor definido pela opção de menu selecionada
   business              Business         @relation(fields: [businessId], references: [id])
   assignedUser          User?            @relation("AssignedConversations", fields: [assignedUserId], references: [id])
   currentMenu           BotMenu?         @relation("CurrentMenu", fields: [currentMenuId], references: [id], onDelete: SetNull)

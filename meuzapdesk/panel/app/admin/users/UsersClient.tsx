@@ -63,18 +63,15 @@ export function UsersClient({ users: initial }: { users: User[] }) {
       </div>
 
       <div className="rounded-xl overflow-hidden" style={{ background: '#202c33', border: '1px solid #2a3942' }}>
+        <div className="overflow-x-auto">
         <table className="w-full text-sm">
           <thead style={{ borderBottom: '1px solid #2a3942' }}>
             <tr>
-              {['Nome', 'E-mail', 'Perfil', 'Status', 'Ações'].map((h) => (
-                <th
-                  key={h}
-                  className="text-left px-4 py-3 text-xs font-semibold uppercase tracking-wide"
-                  style={{ color: '#8696a0' }}
-                >
-                  {h}
-                </th>
-              ))}
+              <th className="text-left px-4 py-3 text-xs font-semibold uppercase tracking-wide" style={{ color: '#8696a0' }}>Nome</th>
+              <th className="text-left px-4 py-3 text-xs font-semibold uppercase tracking-wide hidden sm:table-cell" style={{ color: '#8696a0' }}>E-mail</th>
+              <th className="text-left px-4 py-3 text-xs font-semibold uppercase tracking-wide hidden sm:table-cell" style={{ color: '#8696a0' }}>Perfil</th>
+              <th className="text-left px-4 py-3 text-xs font-semibold uppercase tracking-wide" style={{ color: '#8696a0' }}>Status</th>
+              <th className="text-left px-4 py-3 text-xs font-semibold uppercase tracking-wide" style={{ color: '#8696a0' }}>Ações</th>
             </tr>
           </thead>
           <tbody>
@@ -85,8 +82,8 @@ export function UsersClient({ users: initial }: { users: User[] }) {
                 style={{ borderColor: '#2a3942' }}
               >
                 <td className="px-4 py-3 font-medium" style={{ color: '#e9edef' }}>{user.name}</td>
-                <td className="px-4 py-3" style={{ color: '#8696a0' }}>{user.email}</td>
-                <td className="px-4 py-3">
+                <td className="px-4 py-3 hidden sm:table-cell" style={{ color: '#8696a0' }}>{user.email}</td>
+                <td className="px-4 py-3 hidden sm:table-cell">
                   <span
                     className={`inline-flex px-2 py-0.5 rounded-full text-xs font-semibold ${
                       user.role === 'OWNER'
@@ -140,6 +137,7 @@ export function UsersClient({ users: initial }: { users: User[] }) {
             )}
           </tbody>
         </table>
+        </div>
       </div>
 
       {modalOpen && (

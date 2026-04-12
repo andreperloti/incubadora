@@ -73,10 +73,18 @@ export default async function AtendimentoPage() {
     return true
   }).slice(0, 20)
 
+  // Opções do menu raiz — usadas como filtros na sidebar
+  const rootMenu = await prisma.botMenu.findFirst({
+    where: { businessId, isRoot: true },
+    include: { options: { orderBy: { order: 'asc' } } },
+  })
+  const menuFilters = rootMenu?.options.map((o) => ({ order: o.order, label: o.label })) ?? []
+
   return (
     <AtendimentoClient
       conversations={JSON.parse(JSON.stringify(active))}
       recentConversations={JSON.parse(JSON.stringify(recent))}
+      menuFilters={menuFilters}
       session={session}
     />
   )

@@ -134,7 +134,23 @@ export async function POST(req: NextRequest) {
           const chat = individualChats[i]
           const chatId = extractId(chat.id)
           const chatName = chat.name || chat.displayName || ''
-          const customerPhone = resolveCustomerPhone(chatId, chatName)
+
+          // Para @lid: resolve o número real via contacts
+          let resolvedChatId = chatId
+          if (chatId.endsWith('@lid')) {
+            const contactRes = await fetch(
+              `${WAHA_API_URL}/api/${wahaSession}/contacts/${encodeURIComponent(chatId)}`,
+              { headers: wahaHeaders() }
+            ).catch(() => null)
+            if (contactRes?.ok) {
+              const contactData = await contactRes.json()
+              if (contactData?.id && contactData.id.endsWith('@c.us')) {
+                resolvedChatId = contactData.id
+              }
+            }
+          }
+
+          const customerPhone = resolveCustomerPhone(resolvedChatId, chatName)
           const customerName = chatName || customerPhone
 
           send({
@@ -144,25 +160,34 @@ export async function POST(req: NextRequest) {
             chatName: customerName,
           })
 
+          // Busca mensagens usando o ID resolvido (@c.us se possível)
           const msgsRes = await fetch(
-            `${WAHA_API_URL}/api/${wahaSession}/chats/${encodeURIComponent(chatId)}/messages?limit=${messagesPerChat}&downloadMedia=false`,
+            `${WAHA_API_URL}/api/${wahaSession}/chats/${encodeURIComponent(resolvedChatId)}/messages?limit=${messagesPerChat}&downloadMedia=false`,
             { headers: wahaHeaders() }
           ).catch(() => null)
 
-          if (!msgsRes?.ok) continue
+          // Timestamp da última mensagem — usa o do overview se disponível
+          const overviewLastMsgTs: number | undefined = (chat.lastMessage as any)?.timestamp
+          const fallbackLastMsgAt = overviewLastMsgTs
+            ? new Date(overviewLastMsgTs * 1000)
+            : new Date()
 
-          const msgsData = await msgsRes.json()
-          const messages: any[] = Array.isArray(msgsData) ? msgsData : (msgsData.messages ?? [])
+          // Tenta importar mensagens; se falhar, cria a conversa sem histórico
+          let textMessages: any[] = []
+          if (msgsRes?.ok) {
+            const msgsData = await msgsRes.json()
+            const messages: any[] = Array.isArray(msgsData) ? msgsData : (msgsData.messages ?? [])
+            textMessages = messages.filter((m: any) => m.body && String(m.body).trim())
+            textMessages.sort((a: any, b: any) => (a.timestamp ?? 0) - (b.timestamp ?? 0))
+          }
 
-          const textMessages = messages.filter((m: any) => m.body && String(m.body).trim())
-          if (textMessages.length === 0) continue
+          const lastMsgAt = textMessages.length > 0
+            ? (textMessages[textMessages.length - 1].timestamp
+                ? new Date(textMessages[textMessages.length - 1].timestamp * 1000)
+                : fallbackLastMsgAt)
+            : fallbackLastMsgAt
 
-          textMessages.sort((a: any, b: any) => (a.timestamp ?? 0) - (b.timestamp ?? 0))
-
-          const lastMsg = textMessages[textMessages.length - 1]
-          const lastMsgAt = lastMsg.timestamp ? new Date(lastMsg.timestamp * 1000) : new Date()
-
-          const searchPhones = Array.from(new Set([customerPhone, chatId].filter(Boolean)))
+          const searchPhones = Array.from(new Set([customerPhone, resolvedChatId, chatId].filter(Boolean)))
           let conversation = await prisma.conversation.findFirst({
             where: { businessId, customerPhone: { in: searchPhones } },
             orderBy: { createdAt: 'desc' },
@@ -189,13 +214,14 @@ export async function POST(req: NextRequest) {
             }
           }
 
+          if (textMessages.length === 0) continue
+
           const existing = await prisma.message.findMany({
             where: { conversationId: conversation.id },
             select: { waMessageId: true },
           })
           const existingIds = new Set(existing.map((m) => m.waMessageId).filter(Boolean))
 
-          let chatMessages = 0
           for (const msg of textMessages) {
             const waMessageId = extractId(msg.id)
             if (!waMessageId || existingIds.has(waMessageId)) continue
@@ -209,7 +235,6 @@ export async function POST(req: NextRequest) {
                 sentAt: msg.timestamp ? new Date(msg.timestamp * 1000) : new Date(),
               },
             })
-            chatMessages++
             importedMessages++
           }
         }

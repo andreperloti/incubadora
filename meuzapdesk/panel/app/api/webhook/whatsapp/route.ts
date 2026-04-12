@@ -227,11 +227,10 @@ async function handleMessage({
   let conversation: any = existing
 
   // Plano de ação do bot (determinado durante a atualização de status)
-  type BotAction = 'send_menu' | 'send_final' | 'resend_current' | 'hardcoded_menu' | 'hardcoded_reply' | 'none'
+  type BotAction = 'send_menu' | 'send_final' | 'resend_current' | 'none'
   let botAction: BotAction = 'none'
   let botMenuMessage: string | null = null
   let botFinalMessage: string | null = null
-  let botHardcodedReply: number | null = null
 
   if (isNew) {
     conversation = await prisma.conversation.create({
@@ -241,7 +240,7 @@ async function handleMessage({
         customerName,
         customerAvatar: avatarUrl,
         customerRealPhone: realPhone,
-        status: 'waiting_menu',
+        status: rootMenu ? 'waiting_menu' : 'in_queue',
         unreadCount: 1,
         lastCustomerMessageAt: waTimestamp,
         customerWaitingSince: waTimestamp,
@@ -251,8 +250,6 @@ async function handleMessage({
     if (rootMenu) {
       botAction = 'send_menu'
       botMenuMessage = rootMenu.message
-    } else {
-      botAction = 'hardcoded_menu'
     }
   } else {
     const wasResolved = existing!.status === 'resolved'
@@ -260,18 +257,20 @@ async function handleMessage({
     const currentMenuData = (existing as any).currentMenu as any
 
     let newStatus: string = existing!.status
-    let optionSelected: number | null = wasResolved ? null : existing!.optionSelected
+    let optionSelected: number | null = existing!.optionSelected  // preserva a última opção; só atualiza quando o cliente selecionar novamente
     let newCurrentMenuId: number | null | undefined = undefined
+    let newSector: string | null | undefined = undefined
 
     if (wasResolved) {
-      newStatus = 'waiting_menu'
-      isNew = true
       newCurrentMenuId = rootMenu?.id ?? null
       if (rootMenu) {
+        newStatus = 'waiting_menu'
+        isNew = true
         botAction = 'send_menu'
         botMenuMessage = rootMenu.message
       } else {
-        botAction = 'hardcoded_menu'
+        newStatus = 'in_queue'
+        isNew = true
       }
     } else if (wasWaitingMenu) {
       if (currentMenuData) {
@@ -295,6 +294,7 @@ async function handleMessage({
             optionSelected = selectedOpt.order
             botAction = 'send_final'
             botFinalMessage = selectedOpt.finalMessage?.trim() || 'Obrigado! Um atendente vai te ajudar em breve. 😊'
+            if (selectedOpt.sectorName) newSector = selectedOpt.sectorName
           }
         } else {
           botAction = 'resend_current'
@@ -306,16 +306,8 @@ async function handleMessage({
         botAction = 'send_menu'
         botMenuMessage = rootMenu.message
       } else {
-        // Fallback hardcoded
-        const isOptionSelection = ['1', '2', '3', '4'].includes(text.trim())
-        if (isOptionSelection) {
-          newStatus = 'in_queue'
-          optionSelected = parseInt(text.trim())
-          botAction = 'hardcoded_reply'
-          botHardcodedReply = optionSelected
-        } else {
-          botAction = 'hardcoded_menu'
-        }
+        // Sem menu configurado: vai direto para a fila, sem resposta automática
+        newStatus = 'in_queue'
       }
     }
 
@@ -329,6 +321,7 @@ async function handleMessage({
       unreadCount: wasResolved ? 1 : { increment: 1 },
     }
     if (newCurrentMenuId !== undefined) updateData.currentMenuId = newCurrentMenuId
+    if (newSector !== undefined) updateData.sector = newSector
     if (avatarUrl && !existing!.customerAvatar) updateData.customerAvatar = avatarUrl
     if (realPhone && !existing!.customerRealPhone) updateData.customerRealPhone = realPhone
 
@@ -375,22 +368,6 @@ async function handleMessage({
       sendWhatsAppMessage({ session: sessionName, to: rawChatId, message: botFinalMessage! })
         .then(() => saveBotMessage(conversation.id, botFinalMessage!, business.id))
         .catch(() => {})
-      break
-    }
-    case 'hardcoded_menu': {
-      const menuText = buildMenuMessage(business.name)
-      sendWhatsAppMessage({ session: sessionName, to: rawChatId, message: menuText })
-        .then((r) => saveBotMessage(conversation.id, menuText, business.id, r.messageId ?? undefined))
-        .catch(() => {})
-      break
-    }
-    case 'hardcoded_reply': {
-      const reply = buildOptionAutoReply(botHardcodedReply!)
-      if (reply) {
-        sendWhatsAppMessage({ session: sessionName, to: rawChatId, message: reply })
-          .then(() => saveBotMessage(conversation.id, reply, business.id))
-          .catch(() => {})
-      }
       break
     }
   }
