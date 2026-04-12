@@ -1,6 +1,6 @@
 services:
   waha:
-    image: devlikeapro/waha:latest
+    image: devlikeapro/waha-plus:chrome
     platform: linux/amd64
     restart: unless-stopped
     environment:
@@ -9,6 +9,7 @@ services:
       - TZ=America/Sao_Paulo
     volumes:
       - waha_data:/app/sessions
+      - waha_media:/app/.media
     networks:
       - meuzapdesk_net
 
@@ -25,8 +26,12 @@ services:
       - WAHA_API_URL=http://waha:3000
       - WAHA_API_KEY=${WAHA_API_KEY}
       - WAHA_WEBHOOK_SECRET=${WAHA_WEBHOOK_SECRET}
+      - WAHA_WEBHOOK_BASE_URL=${WAHA_WEBHOOK_BASE_URL:-http://nextjs:3000}
+      - WAHA_CONTAINER_NAME=${WAHA_CONTAINER_NAME:-meuzapdesk-waha-1}
+      - ALERT_WARN_MINUTES=${ALERT_WARN_MINUTES:-5}
+      - ALERT_URGENT_MINUTES=${ALERT_URGENT_MINUTES:-15}
     ports:
-      - "3000:3000"
+      - "127.0.0.1:3000:3000"
     depends_on:
       - postgres
       - redis
@@ -59,23 +64,19 @@ services:
     networks:
       - meuzapdesk_net
 
-  nginx:
-    image: nginx:alpine
+  site:
+    build:
+      context: ./site
+      dockerfile: Dockerfile
     restart: unless-stopped
     ports:
-      - "80:80"
-      - "443:443"
-    volumes:
-      - ./nginx.conf:/etc/nginx/nginx.conf:ro
-      - ./certs:/etc/nginx/certs:ro
-    depends_on:
-      - nextjs
-      - waha
+      - "127.0.0.1:3001:3001"
     networks:
       - meuzapdesk_net
 
 volumes:
   waha_data:
+  waha_media:
   pg_data:
   redis_data:
 
