@@ -11,13 +11,10 @@ import { execFileSync } from 'child_process'
 
 const TMP_DIR = '/tmp/meuzapdesk-audio'
 const WEBHOOK_BASE = process.env.WAHA_WEBHOOK_BASE_URL || 'http://host.docker.internal:3000'
-const WAHA_CONTAINER = process.env.WAHA_CONTAINER_NAME || 'meuzapdesk-waha-1'
 
-// Converte qualquer formato de áudio para OGG/Opus usando ffmpeg no container WAHA
+// Converte qualquer formato de áudio para OGG/Opus usando ffmpeg local
 function convertToOgg(inputBuffer: Buffer): Buffer {
-  return execFileSync('docker', [
-    'exec', '-i', WAHA_CONTAINER,
-    'ffmpeg',
+  return execFileSync('ffmpeg', [
     '-i', 'pipe:0',
     '-c:a', 'libopus',
     '-b:a', '24k',
