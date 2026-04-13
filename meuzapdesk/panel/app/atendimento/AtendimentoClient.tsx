@@ -691,14 +691,14 @@ export function AtendimentoClient({
         const res = await fetch(`/api/conversations/${selectedId}`)
         if (res.ok) {
           const data = await res.json()
-          console.log('[POLL] ok', { id: selectedId, msgs: data.messages?.length, unread: data.unreadCount })
-          setActiveConv(data)
-        } else {
-          console.log('[POLL] falhou', res.status)
+          setActiveConv((prev) => {
+            // Só atualiza se o número de mensagens mudou ou status mudou
+            if (!prev) return data
+            if (prev.messages.length === data.messages.length && prev.status === data.status) return prev
+            return data
+          })
         }
-      } catch (err) {
-        console.log('[POLL] erro', err)
-      }
+      } catch {}
     }, 3000)
     return () => clearInterval(interval)
   }, [selectedId])
@@ -707,8 +707,31 @@ export function AtendimentoClient({
     fetch('/api/conversations')
       .then((r) => r.json())
       .then((data: ConvSummary[]) => {
-        setConversations(data)
-        // Se a conversa ativa tem mensagens não lidas, recarrega o chat para exibi-las
+        setConversations((prev) => {
+          // Merge inteligente: preserva referências de itens não alterados para evitar
+          // re-renders desnecessários e reset de scroll na lista
+          const prevMap = new Map(prev.map((c) => [c.id, c]))
+          const merged = data.map((c) => {
+            const old = prevMap.get(c.id)
+            if (!old) return c
+            // Retorna referência antiga se nada relevante mudou
+            if (
+              old.status === c.status &&
+              old.unreadCount === c.unreadCount &&
+              old.customerWaitingSince === c.customerWaitingSince &&
+              old.customerName === c.customerName &&
+              old.customerAvatar === c.customerAvatar &&
+              old.sector === c.sector &&
+              old.messages[old.messages.length - 1]?.sentAt === c.messages[c.messages.length - 1]?.sentAt &&
+              old.alerts.length === c.alerts.length
+            ) return old
+            return c
+          })
+          // Se a ordem e todos os itens são idênticos, não troca o array
+          if (merged.length === prev.length && merged.every((c, i) => c === prev[i])) return prev
+          return merged
+        })
+        // Se a conversa ativa tem mensagens não lidas, recarrega o chat
         const activeId = activeIdRef.current
         if (activeId !== null) {
           const fresh = data.find((c) => c.id === activeId)
