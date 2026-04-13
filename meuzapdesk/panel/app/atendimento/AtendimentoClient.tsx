@@ -522,8 +522,8 @@ function ChatPanel({
                 }}
                 placeholder="Digite uma mensagem"
                 rows={1}
-                className="flex-1 bg-transparent text-sm focus:outline-none resize-none leading-5"
-                style={{ color: '#e9edef', maxHeight: '120px' }}
+                className="flex-1 bg-transparent focus:outline-none resize-none leading-5"
+                style={{ color: '#e9edef', maxHeight: '120px', fontSize: '16px' }}
               />
             </div>
             {/* Botão microfone */}
@@ -876,7 +876,7 @@ export function AtendimentoClient({
   })
 
   return (
-    <div className="flex h-screen overflow-hidden relative" style={{ background: '#111b21' }}>
+    <div className="flex overflow-hidden relative" style={{ height: '100dvh', background: '#111b21' }}>
 
       {/* ── Toast mobile: nova mensagem em outra conversa ────────────────────── */}
       {mobileToast && (
