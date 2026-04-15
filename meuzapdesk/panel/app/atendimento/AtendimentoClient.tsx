@@ -1137,18 +1137,7 @@ export function AtendimentoClient({
                   {conversations.length}
                 </span>
               )}
-              <button
-                onClick={openNewConvModal}
-                title="Nova conversa"
-                className="flex items-center justify-center w-8 h-8 rounded-full transition"
-                style={{ color: '#8696a0' }}
-                onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.background = '#2a3942' }}
-                onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.background = 'transparent' }}
-              >
-                <svg viewBox="0 0 24 24" className="w-5 h-5" fill="currentColor">
-                  <path d="M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm0 14H5.17L4 17.17V4h16v12zM11 11h2v2h-2zm0-4h2v3h-2z" />
-                </svg>
-              </button>
+              {/* Botão nova conversa — oculto até funcionalidade estar pronta */}
             </div>
           </div>
 
