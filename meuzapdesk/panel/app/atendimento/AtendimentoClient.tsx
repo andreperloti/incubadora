@@ -740,6 +740,13 @@ export function AtendimentoClient({
   const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [activeFilter, setActiveFilter] = useState<number | null>(null)
   const activeIdRef = useRef<number | null>(null)
+
+  // Nova conversa
+  const [showNewConv, setShowNewConv] = useState(false)
+  const [newConvSearch, setNewConvSearch] = useState('')
+  const [newConvLoading, setNewConvLoading] = useState(false)
+  const [wahaContacts, setWahaContacts] = useState<{ id: string; name: string; phone: string }[]>([])
+  const [contactsLoading, setContactsLoading] = useState(false)
   const loadConversationRef = useRef<((id: number, silent?: boolean) => Promise<void>) | null>(null)
   const audioCtxRef = useRef<AudioContext | null>(null)
 
@@ -981,6 +988,10 @@ export function AtendimentoClient({
           if (event.type === 'alert') {
             refreshList()
           }
+
+          if (event.type === 'conversation_update') {
+            refreshList()
+          }
         } catch {}
       }
 
@@ -1017,6 +1028,37 @@ export function AtendimentoClient({
     setConversations((prev) =>
       prev.map((c) => (c.id === id ? { ...c, unreadCount: 0 } : c))
     )
+  }
+
+  function openNewConvModal() {
+    setNewConvSearch('')
+    setShowNewConv(true)
+    setContactsLoading(true)
+    fetch('/api/contacts')
+      .then((r) => r.json())
+      .then((data) => setWahaContacts(data))
+      .catch(() => {})
+      .finally(() => setContactsLoading(false))
+  }
+
+  async function startConversation(phone: string, name: string) {
+    setNewConvLoading(true)
+    try {
+      const res = await fetch('/api/conversations', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ phone, name }),
+      })
+      if (res.ok) {
+        const { conversation } = await res.json()
+        setShowNewConv(false)
+        setNewConvSearch('')
+        refreshList()
+        handleSelectConv(conversation.id)
+      }
+    } catch {} finally {
+      setNewConvLoading(false)
+    }
   }
 
   const filtered = conversations.filter((c) => {
@@ -1083,17 +1125,31 @@ export function AtendimentoClient({
           className="flex-shrink-0 px-4 pt-3 pb-3"
           style={{ background: '#202c33', borderBottom: '1px solid #2a3942' }}
         >
-          {/* Título + badge */}
+          {/* Título + badge + botão nova conversa */}
           <div className="flex items-center justify-between mb-3">
             <div className="flex items-center gap-2">
               <span className="font-bold text-sm text-gray-100">MeuZapDesk</span>
               <span className="text-xs" style={{ color: '#8696a0' }}>— {user.businessName}</span>
             </div>
-            {conversations.length > 0 && (
-              <span className="bg-green-600 text-white text-xs rounded-full px-2 py-0.5 font-medium">
-                {conversations.length}
-              </span>
-            )}
+            <div className="flex items-center gap-2">
+              {conversations.length > 0 && (
+                <span className="bg-green-600 text-white text-xs rounded-full px-2 py-0.5 font-medium">
+                  {conversations.length}
+                </span>
+              )}
+              <button
+                onClick={openNewConvModal}
+                title="Nova conversa"
+                className="flex items-center justify-center w-8 h-8 rounded-full transition"
+                style={{ color: '#8696a0' }}
+                onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.background = '#2a3942' }}
+                onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.background = 'transparent' }}
+              >
+                <svg viewBox="0 0 24 24" className="w-5 h-5" fill="currentColor">
+                  <path d="M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm0 14H5.17L4 17.17V4h16v12zM11 11h2v2h-2zm0-4h2v3h-2z" />
+                </svg>
+              </button>
+            </div>
           </div>
 
           {/* Search */}
@@ -1342,6 +1398,138 @@ export function AtendimentoClient({
           <EmptyState />
         )}
       </div>
+
+      {/* ── Modal: Nova conversa ─────────────────────────────────────────────── */}
+      {showNewConv && (
+        <div
+          className="absolute inset-0 z-50 flex items-center justify-center px-4"
+          style={{ background: 'rgba(0,0,0,0.6)' }}
+          onClick={() => setShowNewConv(false)}
+        >
+          <div
+            className="w-full max-w-md rounded-xl shadow-2xl overflow-hidden"
+            style={{ background: '#202c33', border: '1px solid #2a3942' }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Header */}
+            <div className="flex items-center justify-between px-5 py-4" style={{ borderBottom: '1px solid #2a3942' }}>
+              <span className="font-semibold text-sm" style={{ color: '#e9edef' }}>Nova conversa</span>
+              <button
+                onClick={() => setShowNewConv(false)}
+                className="text-lg leading-none"
+                style={{ color: '#8696a0' }}
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* Search input */}
+            <div className="px-4 py-3" style={{ borderBottom: '1px solid #2a3942' }}>
+              <div
+                className="flex items-center gap-2 rounded-lg px-3 py-2"
+                style={{ background: '#2a3942' }}
+              >
+                <svg viewBox="0 0 24 24" className="w-4 h-4 flex-shrink-0 fill-current" style={{ color: '#8696a0' }}>
+                  <path d="M15.009 13.805h-.636l-.22-.219a5.184 5.184 0 0 0 1.256-3.386 5.207 5.207 0 1 0-5.207 5.208 5.183 5.183 0 0 0 3.385-1.255l.221.22v.635l4.004 3.999 1.194-1.195-3.997-4.007zm-4.808 0a3.605 3.605 0 1 1 0-7.21 3.605 3.605 0 0 1 0 7.21z" />
+                </svg>
+                <input
+                  autoFocus
+                  type="text"
+                  value={newConvSearch}
+                  onChange={(e) => setNewConvSearch(e.target.value)}
+                  placeholder="Buscar contato ou digitar número..."
+                  className="flex-1 bg-transparent text-sm focus:outline-none"
+                  style={{ color: '#e9edef', fontSize: '16px' }}
+                />
+              </div>
+            </div>
+
+            {/* Results list */}
+            <div className="overflow-y-auto" style={{ maxHeight: '320px' }}>
+              {contactsLoading ? (
+                <div className="px-5 py-4 text-sm" style={{ color: '#8696a0' }}>Carregando contatos...</div>
+              ) : (() => {
+                const term = newConvSearch.toLowerCase().trim()
+                const filtered = term
+                  ? wahaContacts.filter(
+                      (c) =>
+                        c.name.toLowerCase().includes(term) ||
+                        c.phone.replace(/\D/g, '').includes(term.replace(/\D/g, ''))
+                    )
+                  : wahaContacts
+
+                const digits = newConvSearch.replace(/\D/g, '')
+                const showManual = digits.length >= 8 && filtered.length === 0
+
+                return (
+                  <>
+                    {filtered.map((c) => (
+                      <button
+                        key={c.id}
+                        onClick={() => startConversation(c.phone, c.name)}
+                        disabled={newConvLoading}
+                        className="w-full flex items-center gap-3 px-4 py-3 text-left transition"
+                        style={{ borderBottom: '1px solid #1a2429' }}
+                        onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.background = '#2a3942' }}
+                        onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.background = 'transparent' }}
+                      >
+                        <ContactAvatar name={c.name} avatarUrl={null} size={38} />
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-medium truncate" style={{ color: '#e9edef' }}>{c.name}</p>
+                          <p className="text-xs truncate" style={{ color: '#8696a0' }}>{formatPhone(c.phone)}</p>
+                        </div>
+                      </button>
+                    ))}
+
+                    {showManual && (
+                      <button
+                        onClick={() => startConversation(digits, '')}
+                        disabled={newConvLoading}
+                        className="w-full flex items-center gap-3 px-4 py-3 text-left transition"
+                        onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.background = '#2a3942' }}
+                        onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.background = 'transparent' }}
+                      >
+                        <div
+                          className="w-[38px] h-[38px] rounded-full flex items-center justify-center flex-shrink-0"
+                          style={{ background: '#2a3942' }}
+                        >
+                          <svg viewBox="0 0 24 24" className="w-5 h-5" fill="#8696a0">
+                            <path d="M6.62 10.79c1.44 2.83 3.76 5.15 6.59 6.59l2.2-2.2c.27-.27.67-.36 1.02-.24 1.12.37 2.33.57 3.57.57.55 0 1 .45 1 1V20c0 .55-.45 1-1 1-9.39 0-17-7.61-17-17 0-.55.45-1 1-1h3.5c.55 0 1 .45 1 1 0 1.25.2 2.45.57 3.57.11.35.03.74-.25 1.02l-2.2 2.2z" />
+                          </svg>
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-medium" style={{ color: '#e9edef' }}>Usar número</p>
+                          <p className="text-xs" style={{ color: '#8696a0' }}>{formatPhone(digits)}</p>
+                        </div>
+                        <svg viewBox="0 0 24 24" className="w-4 h-4 flex-shrink-0" fill="#53bdeb">
+                          <path d="M8.59 16.59L13.17 12 8.59 7.41 10 6l6 6-6 6z" />
+                        </svg>
+                      </button>
+                    )}
+
+                    {!showManual && filtered.length === 0 && !contactsLoading && (
+                      <div className="px-5 py-4 text-sm" style={{ color: '#8696a0' }}>
+                        {term ? 'Nenhum contato encontrado. Digite um número com 8+ dígitos para iniciar.' : 'Nenhum contato disponível.'}
+                      </div>
+                    )}
+                  </>
+                )
+              })()}
+            </div>
+
+            {/* Footer */}
+            <div className="px-4 py-3 flex justify-end" style={{ borderTop: '1px solid #2a3942' }}>
+              <button
+                onClick={() => setShowNewConv(false)}
+                className="px-4 py-2 rounded-lg text-sm"
+                style={{ color: '#8696a0' }}
+              >
+                Cancelar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
