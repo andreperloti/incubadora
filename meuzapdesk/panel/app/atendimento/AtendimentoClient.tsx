@@ -57,12 +57,6 @@ const STATUS_LABEL: Record<string, string> = {
   in_progress: 'Em atendimento',
 }
 
-const OPTION_LABEL: Record<number, string> = {
-  1: '🔧 Orçamento (peças)',
-  2: '🔍 Diagnóstico',
-  3: '📋 Status serviço',
-  4: '📦 Fornecedores',
-}
 
 function minutesAgo(date: string | null): string {
   if (!date) return ''
@@ -1243,20 +1237,14 @@ export function AtendimentoClient({
                           )}
                         </div>
                       </div>
-                      {(conv.sector || conv.optionSelected) && (
+                      {conv.sector && (
                         <p className="mt-1">
-                          {conv.sector ? (
-                            <span
-                              className="text-xs px-1.5 py-0.5 rounded-full font-medium"
-                              style={{ background: '#1a3a4a', color: '#53bdeb', fontSize: '10px' }}
-                            >
-                              {conv.sector}
-                            </span>
-                          ) : (
-                            <span className="text-xs" style={{ color: '#667781' }}>
-                              {OPTION_LABEL[conv.optionSelected!]}
-                            </span>
-                          )}
+                          <span
+                            className="text-xs px-1.5 py-0.5 rounded-full font-medium"
+                            style={{ background: '#1a3a4a', color: '#53bdeb', fontSize: '10px' }}
+                          >
+                            {conv.sector}
+                          </span>
                         </p>
                       )}
                     </div>

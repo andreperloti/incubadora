@@ -334,7 +334,8 @@ async function handleMessage({
             optionSelected = selectedOpt.order
             botAction = 'send_final'
             botFinalMessage = selectedOpt.finalMessage?.trim() || 'Obrigado! Um atendente vai te ajudar em breve. 😊'
-            if (selectedOpt.sectorName) newSector = selectedOpt.sectorName
+            // Usa sectorName se definido, caso contrário usa o label da opção
+            newSector = selectedOpt.sectorName?.trim() || selectedOpt.label?.trim() || null
           }
         } else {
           botAction = 'resend_current'
