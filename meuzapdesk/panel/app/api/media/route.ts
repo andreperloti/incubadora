@@ -10,6 +10,7 @@ export async function GET(req: NextRequest) {
   if (!session) return new Response('Unauthorized', { status: 401 })
 
   const url = req.nextUrl.searchParams.get('url')
+  const filename = req.nextUrl.searchParams.get('filename') || ''
   if (!url) return new Response('Missing url param', { status: 400 })
 
   // Só permite URLs que apontem para o próprio WAHA (segurança: evita SSRF)
@@ -26,13 +27,17 @@ export async function GET(req: NextRequest) {
     return new Response('Media not found', { status: 404 })
   }
 
-  const contentType = upstream.headers.get('content-type') || 'audio/ogg'
+  const contentType = upstream.headers.get('content-type') || 'application/octet-stream'
   const body = await upstream.arrayBuffer()
 
-  return new Response(body, {
-    headers: {
-      'Content-Type': contentType,
-      'Cache-Control': 'private, max-age=3600',
-    },
-  })
+  const headers: Record<string, string> = {
+    'Content-Type': contentType,
+    'Cache-Control': 'private, max-age=3600',
+  }
+  if (filename) {
+    const safe = filename.replace(/[^\w.\-]/g, '_')
+    headers['Content-Disposition'] = `attachment; filename="${safe}"`
+  }
+
+  return new Response(body, { headers })
 }

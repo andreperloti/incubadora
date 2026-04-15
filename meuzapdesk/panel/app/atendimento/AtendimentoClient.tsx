@@ -173,6 +173,10 @@ function ChatPanel({
   const recTimerRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const recordedUrlRef = useRef<string | null>(null)
 
+  // Anexo de arquivo
+  const [attachedFile, setAttachedFile] = useState<File | null>(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
+
   // Reset ao trocar de conversa
   useEffect(() => {
     setOptimisticMessages([])
@@ -301,6 +305,41 @@ function ChatPanel({
     return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`
   }
 
+  function handleFileSelect(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    if (!file) return
+    setAttachedFile(file)
+    // Reseta o input para permitir selecionar o mesmo arquivo novamente
+    e.target.value = ''
+  }
+
+  async function sendFile() {
+    if (!attachedFile || sending) return
+    setSending(true)
+    const fd = new FormData()
+    fd.append('conversationId', String(conversation.id))
+    fd.append('file', attachedFile)
+    const res = await fetch('/api/messages/file', { method: 'POST', body: fd })
+    if (res.ok) {
+      const data = await res.json()
+      if (data.message) {
+        setOptimisticMessages((prev) =>
+          prev.some((m) => m.id === data.message.id) ? prev : [...prev, data.message]
+        )
+        onNewMessage(data.message)
+        setStatus('in_progress')
+      }
+    }
+    setAttachedFile(null)
+    setSending(false)
+  }
+
+  function formatFileSize(bytes: number): string {
+    if (bytes < 1024) return `${bytes} B`
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
+  }
+
   async function handleResolve() {
     await fetch(`/api/conversations/${conversation.id}/resolve`, { method: 'POST' })
     onResolve()
@@ -408,15 +447,53 @@ function ChatPanel({
                       {prefix}:
                     </p>
                   )}
-                  {msg.mediaUrl && msg.mediaType?.startsWith('audio') ? (
-                    <AudioPlayer
-                      src={msg.mediaUrl.startsWith('/') ? msg.mediaUrl : `/api/media?url=${encodeURIComponent(msg.mediaUrl)}`}
-                      seed={msg.waMessageId ?? msg.id.toString()}
-                      isOutgoing={msg.direction === 'out'}
-                      avatarUrl={conversation.customerAvatar}
-                      contactName={conversation.customerName ?? conversation.customerPhone}
-                    />
-                  ) : (
+                  {msg.mediaUrl && msg.mediaType ? (() => {
+                    const filenameForProxy = msg.content.replace(/^[\u{1F4CE}\u{1F5BC}\uFE0F\u{1F4F7}\u{1F3A5}\s]+/u, '').trim()
+                    const proxiedUrl = msg.mediaUrl.startsWith('/')
+                      ? msg.mediaUrl
+                      : `/api/media?url=${encodeURIComponent(msg.mediaUrl)}${filenameForProxy ? `&filename=${encodeURIComponent(filenameForProxy)}` : ''}`
+                    if (msg.mediaType.startsWith('audio')) {
+                      return (
+                        <AudioPlayer
+                          src={proxiedUrl}
+                          seed={msg.waMessageId ?? msg.id.toString()}
+                          isOutgoing={msg.direction === 'out'}
+                          avatarUrl={conversation.customerAvatar}
+                          contactName={conversation.customerName ?? conversation.customerPhone}
+                        />
+                      )
+                    }
+                    if (msg.mediaType.startsWith('image')) {
+                      return (
+                        <a href={proxiedUrl} target="_blank" rel="noopener noreferrer">
+                          <img
+                            src={proxiedUrl}
+                            alt="Imagem"
+                            className="max-w-[220px] rounded-lg"
+                            style={{ display: 'block' }}
+                          />
+                        </a>
+                      )
+                    }
+                    // PDF, DOC, ZIP, etc — card de download
+                    const filename = msg.content.replace(/^[\u{1F4CE}\u{1F5BC}\uFE0F\u{1F4F7}\u{1F3A5}\s]+/u, '').trim() || 'arquivo'
+                    return (
+                      <a
+                        href={proxiedUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        download={filename}
+                        className="flex items-center gap-2 px-3 py-2 rounded-lg min-w-[160px]"
+                        style={{ background: 'rgba(255,255,255,0.08)', textDecoration: 'none' }}
+                      >
+                        <span className="text-lg flex-shrink-0">📄</span>
+                        <span className="text-sm truncate flex-1" style={{ color: '#e9edef', maxWidth: 140 }}>
+                          {filename}
+                        </span>
+                        <span className="flex-shrink-0 text-xs" style={{ color: '#53bdeb' }}>↓</span>
+                      </a>
+                    )
+                  })() : (
                     <p className="whitespace-pre-wrap break-words leading-snug">{body}</p>
                   )}
                   <p className="text-right text-xs mt-1 ml-4" style={{ color: '#8696a0' }}>
@@ -496,9 +573,57 @@ function ChatPanel({
               )}
             </button>
           </>
+        ) : attachedFile ? (
+          /* ── Estado: arquivo anexado ── */
+          <>
+            <div
+              className="flex-1 rounded-2xl px-3 py-2.5 flex items-center gap-2"
+              style={{ background: '#2a3942', minHeight: '44px' }}
+            >
+              <span className="text-xl flex-shrink-0">
+                {attachedFile.type.startsWith('image/') ? '🖼️' : '📄'}
+              </span>
+              <div className="flex-1 min-w-0">
+                <p className="text-sm truncate" style={{ color: '#e9edef' }}>{attachedFile.name}</p>
+                <p className="text-xs" style={{ color: '#8696a0' }}>{formatFileSize(attachedFile.size)}</p>
+              </div>
+              <button
+                onClick={() => setAttachedFile(null)}
+                className="flex-shrink-0 p-1 rounded-full hover:bg-white/10"
+                aria-label="Remover arquivo"
+              >
+                <svg viewBox="0 0 24 24" className="w-4 h-4" fill="#8696a0">
+                  <path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z" />
+                </svg>
+              </button>
+            </div>
+            {/* Botão enviar arquivo */}
+            <button
+              onClick={sendFile}
+              disabled={sending}
+              className="flex-shrink-0 w-10 h-10 rounded-full bg-green-600 hover:bg-green-700 flex items-center justify-center transition disabled:opacity-40"
+              aria-label="Enviar arquivo"
+            >
+              {sending ? (
+                <span className="text-white text-xs">...</span>
+              ) : (
+                <svg viewBox="0 0 24 24" className="w-5 h-5 fill-white ml-0.5">
+                  <path d="M1.101 21.757L23.8 12.028 1.101 2.3l.011 7.912 13.623 1.816-13.623 1.817-.011 7.912z" />
+                </svg>
+              )}
+            </button>
+          </>
         ) : (
           /* ── Estado: input normal ── */
           <>
+            {/* Input oculto para seleção de arquivo */}
+            <input
+              type="file"
+              ref={fileInputRef}
+              className="hidden"
+              onChange={handleFileSelect}
+              accept="image/*,application/pdf,.doc,.docx,.xls,.xlsx,.txt,.zip,.csv"
+            />
             <div
               className="flex-1 rounded-full px-4 py-2.5 flex items-end gap-2"
               style={{ background: '#2a3942', minHeight: '44px' }}
@@ -526,6 +651,18 @@ function ChatPanel({
                 style={{ color: '#e9edef', maxHeight: '120px', fontSize: '16px' }}
               />
             </div>
+            {/* Botão anexo */}
+            <button
+              onClick={() => fileInputRef.current?.click()}
+              disabled={sending}
+              className="flex-shrink-0 w-10 h-10 rounded-full flex items-center justify-center transition hover:opacity-80 disabled:opacity-40"
+              style={{ background: '#2a3942' }}
+              aria-label="Anexar arquivo"
+            >
+              <svg viewBox="0 0 24 24" className="w-5 h-5" fill="#8696a0">
+                <path d="M16.5 6v11.5c0 2.21-1.79 4-4 4s-4-1.79-4-4V5a2.5 2.5 0 0 1 5 0v10.5c0 .55-.45 1-1 1s-1-.45-1-1V6H10v9.5a2.5 2.5 0 0 0 5 0V5c0-2.21-1.79-4-4-4S7 2.79 7 5v12.5c0 3.04 2.46 5.5 5.5 5.5s5.5-2.46 5.5-5.5V6h-1.5z" />
+              </svg>
+            </button>
             {/* Botão microfone */}
             <button
               onClick={startRecording}

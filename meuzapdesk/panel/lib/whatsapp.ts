@@ -231,6 +231,45 @@ export async function sendWhatsAppVoice({
   }
 }
 
+// Envia arquivo genérico (PDF, imagem, doc, etc.) via WAHA
+export async function sendWhatsAppFile({
+  session,
+  to,
+  fileUrl,
+  mimetype,
+  filename,
+}: {
+  session: string
+  to: string
+  fileUrl: string
+  mimetype: string
+  filename: string
+}): Promise<SendMessageResult> {
+  try {
+    const res = await fetch(`${WAHA_API_URL}/api/sendFile`, {
+      method: 'POST',
+      headers: wahaHeaders(),
+      body: JSON.stringify({
+        session,
+        chatId: toChatId(to),
+        file: { url: fileUrl, mimetype, filename },
+        caption: '',
+      }),
+    })
+
+    const data = await res.json()
+    if (!res.ok) return { success: false, error: data.message || 'Erro ao enviar arquivo' }
+
+    const messageId = typeof data.id === 'object'
+      ? (data.id?._serialized ?? data.id?.id ?? null)
+      : (data.id ?? null)
+
+    return { success: true, messageId }
+  } catch (err) {
+    return { success: false, error: String(err) }
+  }
+}
+
 // ─── Gerenciamento de Sessões WAHA ──────────────────────────────────────────
 
 export type WahaSessionStatus =

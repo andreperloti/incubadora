@@ -58,16 +58,20 @@ export async function POST(req: NextRequest) {
   const msgType: string = payload?.type ?? payload?._data?.type ?? ''
   const hasMedia: boolean = payload?.hasMedia === true
   const isAudio = hasMedia && (msgType === 'ptt' || msgType === 'audio' || msgType === 'voice')
+  const isFile = hasMedia && !isAudio && (
+    msgType === 'image' || msgType === 'document' || msgType === 'video' ||
+    msgType === 'sticker' || msgType === 'gif'
+  )
 
   // Ignora se não tem texto nem mídia reconhecida
-  if (!phone || (!text && !isAudio)) {
+  if (!phone || (!text && !isAudio && !isFile)) {
     return NextResponse.json({ status: 'ignored' })
   }
 
-  // Para áudio: busca URL da mídia via API do WAHA (webhook não inclui media sem config especial)
+  // Para mídia: busca URL via API do WAHA (webhook não inclui media sem config especial)
   let mediaUrl: string | null = payload?.media?.url ?? null
   let mediaType: string | null = payload?.media?.mimetype ?? null
-  if (isAudio && !mediaUrl && waMessageId) {
+  if ((isAudio || isFile) && !mediaUrl && waMessageId) {
     const media = await getWahaMessageMedia(sessionName, rawFrom, waMessageId)
     if (media) {
       mediaUrl = media.url
@@ -75,8 +79,17 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  // Para áudio sem texto, usa placeholder descritivo para navegação no menu
-  const effectiveText = text || (isAudio ? '🎵 Áudio' : '')
+  // Nome do arquivo: vem em diferentes campos dependendo do engine/versão do WAHA
+  const incomingFilename: string =
+    payload?.media?.filename ??
+    payload?._data?.filename ??
+    payload?.filename ??
+    ''
+  const fileLabel = msgType === 'image' ? '🖼️ Imagem'
+    : msgType === 'video' ? '🎥 Vídeo'
+    : incomingFilename ? `📎 ${incomingFilename}`
+    : '📎 Arquivo'
+  const effectiveText = text || (isAudio ? '🎵 Áudio' : isFile ? fileLabel : '')
 
   // Encontra o negócio pela sessão WAHA
   const business = await prisma.business.findFirst({
