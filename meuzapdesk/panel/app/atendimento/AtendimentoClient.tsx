@@ -80,7 +80,7 @@ function formatPhone(raw: string): string {
     const formatted = num.length === 9
       ? `${num.slice(0, 5)}-${num.slice(5)}`
       : `${num.slice(0, 4)}-${num.slice(4)}`
-    return `+55 ${ddd} ${formatted}`
+    return `${ddd} ${formatted}`
   }
   return digits || raw
 }
