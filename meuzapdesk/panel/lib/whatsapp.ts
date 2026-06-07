@@ -11,12 +11,31 @@ function wahaHeaders() {
   }
 }
 
+// Normaliza número de telefone para o padrão brasileiro: sempre com DDI 55.
+// Entrada aceita: dígitos puros, formatados, com ou sem @sufixo.
+// Ex: "16 99119-8729" → "5516991198729"
+//     "5516991198729@c.us" → "5516991198729"
+//     "5516991198729" → "5516991198729" (já correto)
+export function normalizePhone(raw: string): string {
+  const digits = raw.replace(/@\S+$/, '').replace(/\D/g, '')
+  if (digits.length === 10 || digits.length === 11) return '55' + digits
+  return digits
+}
+
+// Retorna todas as variações conhecidas de um número para buscas de deduplicação.
+// Garante que a busca encontra o contato mesmo que o número esteja salvo em formatos diferentes.
+export function phoneAliases(phone: string): string[] {
+  const normalized = normalizePhone(phone)
+  const withoutDdi = normalized.startsWith('55') ? normalized.slice(2) : normalized
+  return Array.from(new Set([normalized, withoutDdi, phone.replace(/@\S+$/, '').replace(/\D/g, '')].filter(Boolean)))
+}
+
 // Converte número de telefone para chatId do WAHA
 // Ex: "5511999999999" → "5511999999999@c.us"
 // Se já tiver sufixo @ (ex: @c.us ou @lid), retorna como está
 export function toChatId(phone: string): string {
   if (phone.includes('@')) return phone
-  const cleaned = phone.replace(/\D/g, '')
+  const cleaned = normalizePhone(phone)
   return `${cleaned}@c.us`
 }
 
@@ -24,7 +43,7 @@ export function toChatId(phone: string): string {
 // Retorna null se o nome não parecer um número de telefone
 export function parsePhoneFromContactName(name: string): string | null {
   const digits = name.replace(/\D/g, '')
-  if (digits.length >= 10 && digits.length <= 15) return digits
+  if (digits.length >= 10 && digits.length <= 15) return normalizePhone(digits)
   return null
 }
 

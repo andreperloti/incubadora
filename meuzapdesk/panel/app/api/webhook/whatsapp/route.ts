@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { verifyWebhookSecret, getWahaContactName, getWahaChatName, parsePhoneFromContactName, getWahaContactAvatar, getWahaContactPhone, buildOptionAutoReply, sendWhatsAppMessage, POLL_OPTIONS, getWahaMessageMedia } from '@/lib/whatsapp'
+import { verifyWebhookSecret, getWahaContactName, getWahaChatName, parsePhoneFromContactName, getWahaContactAvatar, getWahaContactPhone, buildOptionAutoReply, sendWhatsAppMessage, POLL_OPTIONS, getWahaMessageMedia, normalizePhone } from '@/lib/whatsapp'
 import { prisma } from '@/lib/db'
 import { broadcastToBusinessClients } from '@/lib/sse'
 
@@ -41,8 +41,8 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ status: 'ignored' })
   }
 
-  // Para @c.us: usa apenas o número. Para @lid: mantém o ID completo como identificador (necessário para envio de resposta).
-  const phone = rawFrom.endsWith('@c.us') ? rawFrom.replace('@c.us', '') : rawFrom
+  // Para @c.us: normaliza para padrão 55DDNNNNNNNNN. Para @lid: mantém o ID completo.
+  const phone = rawFrom.endsWith('@c.us') ? normalizePhone(rawFrom) : rawFrom
   const notifyName: string = payload?.notifyName || payload?.pushName || ''
   const text: string = payload?.body ?? ''
   // payload.id pode ser objeto {_serialized, id, ...} no engine WEBJS
@@ -141,14 +141,15 @@ async function handlePollVote(body: any) {
     return NextResponse.json({ status: 'ignored' })
   }
 
-  const phone = rawChatId.endsWith('@c.us') ? rawChatId.replace('@c.us', '') : rawChatId
+  const phone = rawChatId.endsWith('@c.us') ? normalizePhone(rawChatId) : rawChatId
 
   const business = await prisma.business.findFirst({ where: { wahaSession: sessionName } })
   if (!business) return NextResponse.json({ status: 'ok' })
 
   const realPhone = await getWahaContactPhone(sessionName, rawChatId)
+  const withoutDdi = phone.startsWith('55') ? phone.slice(2) : phone
   const phoneAliases = Array.from(new Set(
-    [phone, rawChatId, realPhone].filter(Boolean) as string[]
+    [phone, withoutDdi, rawChatId, realPhone].filter(Boolean) as string[]
   ))
 
   const conversation = await prisma.conversation.findFirst({
@@ -218,8 +219,10 @@ async function handleMessage({
 }) {
   const realPhone = await getWahaContactPhone(sessionName, rawChatId)
 
+  const normalizedPhone = phone.endsWith('@c.us') ? normalizePhone(phone) : normalizePhone(phone)
+  const withoutDdi = normalizedPhone.startsWith('55') ? normalizedPhone.slice(2) : normalizedPhone
   const phoneAliases = Array.from(new Set(
-    [phone, rawChatId, realPhone, parsePhoneFromContactName(customerName)].filter(Boolean) as string[]
+    [normalizedPhone, withoutDdi, rawChatId, realPhone, parsePhoneFromContactName(customerName)].filter(Boolean) as string[]
   ))
 
   // Busca menu raiz configurado (determina modo dinâmico vs hardcoded)

@@ -92,63 +92,70 @@ export default function WhatsAppSetupPage() {
     setImportStatus('Iniciando importação...')
 
     try {
+      // Enfileira o job em background
       const res = await fetch('/api/admin/import-history', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ chatsLimit: 50, messagesPerChat: 100 }),
+        body: JSON.stringify({ chatsLimit: 50, messagesPerChat: 20 }),
       })
 
-      if (!res.ok || !res.body) {
+      if (!res.ok) {
         setImportError('Erro ao iniciar importação')
         importTriggeredRef.current = false
         return
       }
 
-      const reader = res.body.getReader()
-      const decoder = new TextDecoder()
-      let buffer = ''
+      const { jobId } = await res.json()
+      if (!jobId) {
+        setImportError('Erro ao obter ID do job')
+        importTriggeredRef.current = false
+        return
+      }
 
-      while (true) {
-        const { done, value } = await reader.read()
-        if (done) break
+      // Acompanha progresso via SSE dedicado ao job
+      const eventSource = new EventSource(`/api/admin/import-history/progress?jobId=${jobId}`)
 
-        buffer += decoder.decode(value, { stream: true })
-        const lines = buffer.split('\n\n')
-        buffer = lines.pop() || ''
+      eventSource.onmessage = (e) => {
+        try {
+          const data = JSON.parse(e.data)
+          switch (data.type) {
+            case 'status':
+              setImportStatus(data.message)
+              break
+            case 'total':
+              setImportStatus(`Encontradas ${data.total} conversas`)
+              break
+            case 'progress':
+              setImportProgress({ current: data.current, total: data.total, chatName: data.chatName })
+              setImportStatus(`Importando conversa ${data.current}/${data.total}`)
+              break
+            case 'done':
+              setImportResult(data.imported)
+              setImportProgress(null)
+              setImportStatus('')
+              eventSource.close()
+              importTriggeredRef.current = false
+              break
+            case 'error':
+              setImportError(data.message)
+              setImportProgress(null)
+              setImportStatus('')
+              eventSource.close()
+              importTriggeredRef.current = false
+              break
+          }
+        } catch {}
+      }
 
-        for (const line of lines) {
-          const match = line.match(/^data: (.+)$/)
-          if (!match) continue
-          try {
-            const data = JSON.parse(match[1])
-            switch (data.type) {
-              case 'status':
-                setImportStatus(data.message)
-                break
-              case 'total':
-                setImportStatus(`Encontradas ${data.total} conversas`)
-                break
-              case 'progress':
-                setImportProgress({ current: data.current, total: data.total, chatName: data.chatName })
-                setImportStatus(`Importando conversa ${data.current}/${data.total}`)
-                break
-              case 'done':
-                setImportResult(data.imported)
-                setImportProgress(null)
-                setImportStatus('')
-                break
-              case 'error':
-                setImportError(data.message)
-                setImportProgress(null)
-                setImportStatus('')
-                break
-            }
-          } catch {}
-        }
+      eventSource.onerror = () => {
+        setImportError('Erro de conexão com o servidor')
+        setImportProgress(null)
+        setImportStatus('')
+        eventSource.close()
+        importTriggeredRef.current = false
       }
     } catch {
       setImportError('Erro de conexão')
-    } finally {
       importTriggeredRef.current = false
     }
   }, [])

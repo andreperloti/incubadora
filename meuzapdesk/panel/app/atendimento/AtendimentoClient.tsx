@@ -904,6 +904,7 @@ export function AtendimentoClient({
   }, [refreshList, refreshRecent])
 
   // Sync automático do histórico WAHA ao montar — apenas OWNER, throttle 5 min
+  // Enfileira job em background; atualizações chegam via SSE (conversation_imported / new_message)
   useEffect(() => {
     if (!isOwner) return
     const THROTTLE_KEY = 'waha_sync_last'
@@ -914,17 +915,9 @@ export function AtendimentoClient({
     fetch('/api/admin/import-history', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ chatsLimit: 30, messagesPerChat: 100 }),
-    })
-      .then((r) => r.ok ? r.json() : null)
-      .then((data) => {
-        if (data?.imported?.conversations > 0 || data?.imported?.messages > 0) {
-          refreshList()
-          refreshRecent()
-        }
-      })
-      .catch(() => {})
-  }, [isOwner, refreshList, refreshRecent])
+      body: JSON.stringify({ chatsLimit: 30, messagesPerChat: 20 }),
+    }).catch(() => {})
+  }, [isOwner])
 
   useEffect(() => {
     let es: EventSource
@@ -949,30 +942,27 @@ export function AtendimentoClient({
           const event = JSON.parse(e.data)
 
           if (event.type === 'new_message') {
-            const msg: Message = event.message
-            const isIncoming = msg.direction === 'in'
+            const msg: Message | undefined = event.message
+            const isIncoming = msg?.direction === 'in'
 
-            console.log('[SSE] new_message', { eventConvId: event.conversationId, activeId: activeIdRef.current, match: event.conversationId === activeIdRef.current })
-
-            if (event.conversationId === activeIdRef.current) {
-              // Append direto para feedback imediato
+            if (msg && event.conversationId === activeIdRef.current) {
+              // Append direto para feedback imediato (só quando a mensagem está presente)
               setActiveConv((prev) =>
                 prev ? { ...prev, messages: [...prev.messages, msg] } : prev
               )
             }
 
-            // Sempre recarrega a conversa ativa se for para ela (garante sincronia mesmo com mismatch de ID)
+            // Recarrega a conversa ativa se for para ela
             if (activeIdRef.current !== null && event.conversationId === activeIdRef.current) {
               loadConversationRef.current?.(event.conversationId, true)
             }
 
-            if (isIncoming) {
+            if (isIncoming && msg) {
               playNotificationSound()
               setConversations((prev) => {
                 const conv = prev.find((c) => c.id === event.conversationId)
                 const name = conv?.customerName || conv?.customerRealPhone || conv?.customerPhone || 'Novo cliente'
                 showBrowserNotification(name, msg.content)
-                // Toast mobile: só quando está no chat de outra conversa
                 if (event.conversationId !== activeIdRef.current) {
                   setMobileToast({ id: event.conversationId, name, content: msg.content })
                   if (toastTimerRef.current) clearTimeout(toastTimerRef.current)
@@ -983,6 +973,15 @@ export function AtendimentoClient({
             }
 
             refreshList()
+          }
+
+          if (event.type === 'conversation_imported') {
+            refreshList()
+            refreshRecent()
+            // Se a conversa importada for a que está aberta, recarrega o chat
+            if (activeIdRef.current !== null && event.conversation?.id === activeIdRef.current) {
+              loadConversationRef.current?.(activeIdRef.current, true)
+            }
           }
 
           if (event.type === 'alert') {
@@ -1044,7 +1043,7 @@ export function AtendimentoClient({
   async function startConversation(phone: string, name: string) {
     setNewConvLoading(true)
     try {
-      const res = await fetch('/api/conversations', {
+      const res = await fetch('/api/conversations/new', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ phone, name }),
@@ -1137,7 +1136,18 @@ export function AtendimentoClient({
                   {conversations.length}
                 </span>
               )}
-              {/* Botão nova conversa — oculto até funcionalidade estar pronta */}
+              <button
+                onClick={openNewConvModal}
+                title="Nova conversa"
+                className="flex items-center justify-center w-8 h-8 rounded-full transition"
+                style={{ color: '#8696a0' }}
+                onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.color = '#e9edef' }}
+                onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.color = '#8696a0' }}
+              >
+                <svg viewBox="0 0 24 24" className="w-5 h-5" fill="currentColor">
+                  <path d="M19.005 3.175H4.674C3.642 3.175 3 3.789 3 4.821V21.02l3.544-3.514h12.461c1.033 0 2.064-1.06 2.064-2.093V4.821c-.001-1.032-1.032-1.646-2.064-1.646zm-4.989 9.869H7.041V11.1h6.975v1.944zm3-4H7.041V7.1h9.975v1.944z" />
+                </svg>
+              </button>
             </div>
           </div>
 
@@ -1418,9 +1428,19 @@ export function AtendimentoClient({
                 className="flex items-center gap-2 rounded-lg px-3 py-2"
                 style={{ background: '#2a3942' }}
               >
-                <svg viewBox="0 0 24 24" className="w-4 h-4 flex-shrink-0 fill-current" style={{ color: '#8696a0' }}>
-                  <path d="M15.009 13.805h-.636l-.22-.219a5.184 5.184 0 0 0 1.256-3.386 5.207 5.207 0 1 0-5.207 5.208 5.183 5.183 0 0 0 3.385-1.255l.221.22v.635l4.004 3.999 1.194-1.195-3.997-4.007zm-4.808 0a3.605 3.605 0 1 1 0-7.21 3.605 3.605 0 0 1 0 7.21z" />
-                </svg>
+                {/* Mostra bandeira +55 quando o campo tem só dígitos; lupa nos demais casos */}
+                {newConvSearch.replace(/\D/g, '').length > 0 && newConvSearch.replace(/[0-9\s\-().+]/g, '').length === 0 ? (
+                  <span
+                    className="flex items-center gap-1 text-xs font-semibold flex-shrink-0 px-1.5 py-0.5 rounded"
+                    style={{ background: '#1a2e3a', color: '#53bdeb', letterSpacing: '0.02em' }}
+                  >
+                    🇧🇷 +55
+                  </span>
+                ) : (
+                  <svg viewBox="0 0 24 24" className="w-4 h-4 flex-shrink-0 fill-current" style={{ color: '#8696a0' }}>
+                    <path d="M15.009 13.805h-.636l-.22-.219a5.184 5.184 0 0 0 1.256-3.386 5.207 5.207 0 1 0-5.207 5.208 5.183 5.183 0 0 0 3.385-1.255l.221.22v.635l4.004 3.999 1.194-1.195-3.997-4.007zm-4.808 0a3.605 3.605 0 1 1 0-7.21 3.605 3.605 0 0 1 0 7.21z" />
+                  </svg>
+                )}
                 <input
                   autoFocus
                   type="text"
@@ -1448,6 +1468,10 @@ export function AtendimentoClient({
                   : wahaContacts
 
                 const digits = newConvSearch.replace(/\D/g, '')
+                // Normaliza para incluir DDI 55: se o usuário digitou só DDD+número (10-11 dígitos)
+                const normalizedDigits = (digits.length === 10 || digits.length === 11)
+                  ? '55' + digits
+                  : digits
                 const showManual = digits.length >= 8 && filtered.length === 0
 
                 return (
@@ -1472,7 +1496,7 @@ export function AtendimentoClient({
 
                     {showManual && (
                       <button
-                        onClick={() => startConversation(digits, '')}
+                        onClick={() => startConversation(normalizedDigits, '')}
                         disabled={newConvLoading}
                         className="w-full flex items-center gap-3 px-4 py-3 text-left transition"
                         onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.background = '#2a3942' }}
@@ -1488,7 +1512,7 @@ export function AtendimentoClient({
                         </div>
                         <div className="flex-1 min-w-0">
                           <p className="text-sm font-medium" style={{ color: '#e9edef' }}>Usar número</p>
-                          <p className="text-xs" style={{ color: '#8696a0' }}>{formatPhone(digits)}</p>
+                          <p className="text-xs" style={{ color: '#8696a0' }}>{formatPhone(normalizedDigits)}</p>
                         </div>
                         <svg viewBox="0 0 24 24" className="w-4 h-4 flex-shrink-0" fill="#53bdeb">
                           <path d="M8.59 16.59L13.17 12 8.59 7.41 10 6l6 6-6 6z" />
