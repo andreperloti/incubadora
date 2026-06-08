@@ -1,0 +1,61 @@
+# Docker Compose — Produção MeuZapDesk
+# Sobe apenas a infraestrutura: PostgreSQL, Redis, WAHA
+# O Next.js (panel + site) roda via PM2 no host
+#
+# Uso:
+#   cd meuzapdesk
+#   docker compose -f docker-compose.prod.yml up -d
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: always
+    environment:
+      - POSTGRES_DB=${POSTGRES_DB:-meuzapdesk_prod}
+      - POSTGRES_USER=${POSTGRES_USER:-meuzapdesk}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - pg_prod_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-meuzapdesk}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    restart: always
+    ports:
+      - "127.0.0.1:6379:6379"
+    volumes:
+      - redis_prod_data:/data
+    command: redis-server --save 60 1 --loglevel warning
+
+  waha:
+    image: devlikeapro/waha-plus:chrome
+    platform: linux/amd64
+    restart: always
+    ports:
+      - "127.0.0.1:3100:3000"
+    environment:
+      - WAHA_API_KEY=${WAHA_API_KEY}
+      - WAHA_DASHBOARD_ENABLED=true
+      - WHATSAPP_SWAGGER_USERNAME=${WAHA_DASHBOARD_USERNAME:-admin}
+      - WHATSAPP_SWAGGER_PASSWORD=${WAHA_DASHBOARD_PASSWORD}
+      - WAHA_LOG_LEVEL=info
+      - TZ=America/Sao_Paulo
+      - WHATSAPP_FILES_FOLDER=/app/.media
+      - WHATSAPP_FILES_LIFETIME=0
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - waha_prod_sessions:/app/sessions
+      - waha_prod_media:/app/.media
+
+volumes:
+  pg_prod_data:
+  redis_prod_data:
+  waha_prod_sessions:
+  waha_prod_media:
