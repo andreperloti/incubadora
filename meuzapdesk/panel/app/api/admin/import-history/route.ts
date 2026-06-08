@@ -2,10 +2,7 @@ import { NextRequest } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/db'
-import { importQueue } from '@/lib/import-queue'
-
-// Garante que o worker está inicializado quando qualquer rota de import é chamada
-import '@/lib/import-queue'
+import { importQueue, ensureImportWorker } from '@/lib/import-queue'
 
 export async function POST(req: NextRequest) {
   const session = await getServerSession(authOptions)
@@ -27,6 +24,8 @@ export async function POST(req: NextRequest) {
       headers: { 'Content-Type': 'application/json' },
     })
   }
+
+  ensureImportWorker()
 
   const job = await importQueue.add('import', {
     businessId,

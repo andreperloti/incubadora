@@ -45,8 +45,17 @@ export const importQueue: Queue =
   globalForQueue.importQueue ??
   new Queue('import-history', { connection })
 
-if (process.env.NODE_ENV !== 'production') {
-  globalForQueue.importQueue = importQueue
+globalForQueue.importQueue = importQueue
+
+// Worker inicializado de forma lazy — NÃO no top-level do módulo,
+// para não quebrar o registo de Server Actions no Next.js.
+export function ensureImportWorker(): void {
+  const g = global as unknown as { importWorker: Worker }
+  if (g.importWorker) return
+  g.importWorker = new Worker('import-history', processImport, { connection })
+  g.importWorker.on('failed', (job, err) => {
+    console.error('[ImportWorker] Job falhou:', job?.id, err)
+  })
 }
 
 async function processImport(job: Job<ImportJobData>) {
@@ -261,11 +270,3 @@ async function processImport(job: Job<ImportJobData>) {
   }
 }
 
-// Worker singleton — inicializado uma única vez por processo
-const globalForWorker = global as unknown as { importWorker: Worker }
-if (!globalForWorker.importWorker) {
-  globalForWorker.importWorker = new Worker('import-history', processImport, { connection })
-  globalForWorker.importWorker.on('failed', (job, err) => {
-    console.error('[ImportWorker] Job falhou:', job?.id, err)
-  })
-}
