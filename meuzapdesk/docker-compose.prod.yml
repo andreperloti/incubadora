@@ -34,8 +34,7 @@ services:
     command: redis-server --save 60 1 --loglevel warning
 
   waha:
-    image: devlikeapro/waha-plus:chrome
-    platform: linux/amd64
+    image: devlikeapro/waha-plus:noweb
     restart: always
     ports:
       - "127.0.0.1:3100:3000"

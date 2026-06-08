@@ -31,8 +31,7 @@ services:
       - redis_dev_data:/data
 
   waha:
-    image: devlikeapro/waha-plus:chrome
-    platform: linux/amd64
+    image: devlikeapro/waha-plus:noweb-arm
     restart: unless-stopped
     ports:
       - "3002:3000"
