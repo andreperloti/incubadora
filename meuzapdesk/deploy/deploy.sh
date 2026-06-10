@@ -20,6 +20,9 @@ npm --prefix "$PANEL_DIR" ci
 echo "==> [3/6] Instalando dependências do site..."
 npm --prefix "$SITE_DIR" ci
 
+echo "==> [3b/6] Regenerando Prisma client..."
+(cd "$PANEL_DIR" && npx prisma generate)
+
 echo "==> [4/6] Build do panel..."
 npm --prefix "$PANEL_DIR" run build
 
