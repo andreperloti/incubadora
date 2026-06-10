@@ -289,10 +289,12 @@ async function handleOutgoingFromPhone({
 
   if (!content) return NextResponse.json({ status: 'ignored' })
 
-  // Encontra conversa pelo telefone do cliente (rawTo)
-  const customerPhone = rawTo.endsWith('@c.us') ? normalizePhone(rawTo) : rawTo
-  const withoutDdi = customerPhone.startsWith('55') ? customerPhone.slice(2) : customerPhone
-  const phoneAliases = Array.from(new Set([customerPhone, withoutDdi, rawTo].filter(Boolean)))
+  // Resolve @lid → número real (necessário porque o banco armazena o número, não o @lid)
+  const realPhone = await getWahaContactPhone(sessionName, rawTo)
+  const normalizedTo = rawTo.endsWith('@c.us') ? normalizePhone(rawTo) : rawTo
+  const basePhone = realPhone ?? normalizedTo
+  const withoutDdi = basePhone.startsWith('55') ? basePhone.slice(2) : basePhone
+  const phoneAliases = Array.from(new Set([normalizedTo, realPhone, withoutDdi, rawTo].filter(Boolean) as string[]))
 
   const conversation = await prisma.conversation.findFirst({
     where: {
