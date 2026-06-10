@@ -118,7 +118,13 @@ export async function POST(req: NextRequest) {
       customerName = (await getWahaContactName(sessionName, phone)) || phone
     }
   }
-  if (!customerName) customerName = phone
+  // Se o nome ainda é um @lid ou está vazio, usa o número real como fallback mais legível
+  if (!customerName || customerName === phone) {
+    const realPhoneFallback = phone.endsWith('@lid')
+      ? null
+      : phone
+    customerName = realPhoneFallback || phone
+  }
 
   return handleMessage({
     business, sessionName, phone,
@@ -196,6 +202,36 @@ async function handlePollVote(body: any) {
   return NextResponse.json({ status: 'ok' })
 }
 
+async function mergeDuplicateConversations(businessId: number, phones: string[], keepId: number) {
+  const others = await prisma.conversation.findMany({
+    where: {
+      businessId,
+      customerPhone: { in: phones },
+      status: { not: 'resolved' },
+      id: { not: keepId },
+    },
+    select: { id: true },
+  })
+  if (others.length === 0) return
+
+  const dupIds = others.map((c) => c.id)
+  await prisma.message.updateMany({
+    where: { conversationId: { in: dupIds } },
+    data: { conversationId: keepId },
+  })
+  await prisma.conversationAlert.updateMany({
+    where: { conversationId: { in: dupIds } },
+    data: { conversationId: keepId },
+  }).catch(() => {})
+  await prisma.conversation.updateMany({
+    where: { id: { in: dupIds } },
+    data: { status: 'resolved', resolvedAt: new Date() },
+  })
+  for (const dupId of dupIds) {
+    broadcastToBusinessClients(String(businessId), { type: 'conversation_resolved', conversationId: dupId })
+  }
+}
+
 function saveBotMessage(conversationId: number, content: string, businessId: number, waMessageId?: string | null) {
   prisma.message.create({
     data: { conversationId, direction: 'out', content, senderUserId: null, waMessageId: waMessageId ?? null },
@@ -237,6 +273,7 @@ async function handleMessage({
 
   const menuInclude = { currentMenu: { include: { options: { orderBy: { order: 'asc' as const } } } } }
 
+  // Busca ativas ordenadas da mais ANTIGA para a mais nova (mantém a mais antiga como canônica)
   const activeConversations = await prisma.conversation.findMany({
     where: {
       businessId: business.id,
@@ -244,15 +281,29 @@ async function handleMessage({
       status: { not: 'resolved' },
     },
     include: menuInclude,
-    orderBy: { createdAt: 'desc' },
+    orderBy: { createdAt: 'asc' },
   })
 
+  // Deduplicação: mantém a MAIS ANTIGA, move mensagens das duplicatas para ela e resolve as extras
   if (activeConversations.length > 1) {
-    const idsToResolve = activeConversations.slice(1).map((c) => c.id)
+    const canonical = activeConversations[0]
+    const duplicateIds = activeConversations.slice(1).map((c) => c.id)
+    await prisma.message.updateMany({
+      where: { conversationId: { in: duplicateIds } },
+      data: { conversationId: canonical.id },
+    })
+    await prisma.conversationAlert.updateMany({
+      where: { conversationId: { in: duplicateIds } },
+      data: { conversationId: canonical.id },
+    }).catch(() => {})
     await prisma.conversation.updateMany({
-      where: { id: { in: idsToResolve } },
+      where: { id: { in: duplicateIds } },
       data: { status: 'resolved', resolvedAt: new Date() },
     })
+    // Notifica o frontend para remover as conversas duplicadas
+    for (const dupId of duplicateIds) {
+      broadcastToBusinessClients(String(business.id), { type: 'conversation_resolved', conversationId: dupId })
+    }
   }
 
   let existing: typeof activeConversations[0] | null = activeConversations[0] ?? null
@@ -279,12 +330,17 @@ async function handleMessage({
   let botMenuMessage: string | null = null
   let botFinalMessage: string | null = null
 
+  // Para @lid, se não temos nome real, usa o número real como nome legível
+  const nameToCreate = (customerName && !customerName.includes('@'))
+    ? customerName
+    : (realPhone ? realPhone : customerName)
+
   if (isNew) {
     conversation = await prisma.conversation.create({
       data: {
         businessId: business.id,
         customerPhone: phone,
-        customerName,
+        customerName: nameToCreate,
         customerAvatar: avatarUrl,
         customerRealPhone: realPhone,
         status: rootMenu ? 'waiting_menu' : 'in_queue',
@@ -359,11 +415,17 @@ async function handleMessage({
       }
     }
 
+    // Só atualiza o nome se melhorou (nome real > @lid/phone)
+    const existingNameIsPlaceholder = !existing!.customerName || existing!.customerName.includes('@')
+    const newNameIsBetter = customerName && !customerName.includes('@')
+    const nameToUse = (existingNameIsPlaceholder && newNameIsBetter) ? customerName
+      : (!existing!.customerName ? customerName : existing!.customerName)
+
     const updateData: any = {
       lastCustomerMessageAt: waTimestamp,
       status: newStatus,
       optionSelected,
-      customerName,
+      customerName: nameToUse,
       customerWaitingSince: wasResolved ? waTimestamp : (existing!.customerWaitingSince ?? waTimestamp),
       resolvedAt: wasResolved ? null : existing!.resolvedAt,
       unreadCount: wasResolved ? 1 : { increment: 1 },
@@ -409,6 +471,11 @@ async function handleMessage({
     conversationId: conversation.id,
     message: savedMessage,
   })
+
+  // ── Post-save dedup: cobre race conditions onde múltiplas requisições simultâneas
+  // criaram conversas duplicadas antes de qualquer delas ter commitado a sua.
+  // Roda de forma assíncrona para não bloquear a resposta ao WAHA.
+  mergeDuplicateConversations(business.id, phoneAliases, conversation.id).catch(() => {})
 
   // ── 2. Executa ação do bot
   switch (botAction) {

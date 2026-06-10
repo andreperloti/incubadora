@@ -339,7 +339,11 @@ function ChatPanel({
     onResolve()
   }
 
-  const displayName = conversation.customerName || conversation.customerPhone
+  const rawName = conversation.customerName ?? ''
+  const isLidId = rawName.endsWith('@lid') || rawName.endsWith('@c.us')
+  const displayName = isLidId
+    ? (conversation.customerRealPhone ? formatPhone(conversation.customerRealPhone) : formatPhone(conversation.customerPhone))
+    : (rawName || formatPhone(conversation.customerRealPhone ?? conversation.customerPhone))
   const isResolved = status === 'resolved'
 
   return (
@@ -453,7 +457,7 @@ function ChatPanel({
                           seed={msg.waMessageId ?? msg.id.toString()}
                           isOutgoing={msg.direction === 'out'}
                           avatarUrl={conversation.customerAvatar}
-                          contactName={conversation.customerName ?? conversation.customerPhone}
+                          contactName={displayName}
                         />
                       )
                     }
@@ -981,6 +985,15 @@ export function AtendimentoClient({
             // Se a conversa importada for a que está aberta, recarrega o chat
             if (activeIdRef.current !== null && event.conversation?.id === activeIdRef.current) {
               loadConversationRef.current?.(activeIdRef.current, true)
+            }
+          }
+
+          if (event.type === 'conversation_resolved') {
+            refreshList()
+            // Se a conversa resolvida estava aberta (era uma duplicata mesclada), fecha ela
+            if (activeIdRef.current === event.conversationId) {
+              setSelectedId(null)
+              setActiveConv(null)
             }
           }
 
