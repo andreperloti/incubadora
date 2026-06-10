@@ -9,6 +9,7 @@ import {
   stopWahaSession,
   getWahaQrCode,
 } from '@/lib/whatsapp'
+import { logInfo, logError } from '@/lib/logger'
 
 async function requireOwner() {
   const session = await getServerSession(authOptions)
@@ -53,17 +54,21 @@ export async function POST(req: NextRequest) {
   const webhookUrl = `${panelUrl}/api/webhook/whatsapp?secret=${webhookSecret}`
 
   if (action === 'start') {
-    // Garante que a sessão existe no WAHA (cria se necessário)
     await createWahaSession(sessionName, webhookUrl)
     const ok = await startWahaSession(sessionName)
+    if (ok) {
+      logInfo('waha', `Sessão iniciada`, { sessionName }, businessId).catch(() => {})
+    } else {
+      logError('waha', `Falha ao iniciar sessão`, { sessionName }, businessId).catch(() => {})
+    }
     return NextResponse.json({ success: ok })
   }
 
   if (action === 'stop') {
     const ok = await stopWahaSession(sessionName)
 
-    // Limpa conversas e mensagens ao desconectar
     if (ok) {
+      logInfo('waha', `Sessão encerrada e conversas limpas`, { sessionName }, businessId).catch(() => {})
       await prisma.message.deleteMany({
         where: { conversation: { businessId } },
       })
@@ -73,6 +78,8 @@ export async function POST(req: NextRequest) {
       await prisma.conversation.deleteMany({
         where: { businessId },
       })
+    } else {
+      logError('waha', `Falha ao encerrar sessão`, { sessionName }, businessId).catch(() => {})
     }
 
     return NextResponse.json({ success: ok })

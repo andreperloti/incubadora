@@ -16,6 +16,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
     { href: '/admin/users',     label: 'Usuários',   icon: '👥' },
     { href: '/admin/whatsapp',  label: 'WhatsApp',   icon: '📱' },
     { href: '/admin/menus',     label: 'Menus',      icon: '🤖' },
+    { href: '/admin/logs',      label: 'Logs',       icon: '📋' },
   ]
 
   return (

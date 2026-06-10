@@ -3,6 +3,7 @@ import { redisPublisher, createRedisSubscriber } from './redis'
 import { broadcastToBusinessClients } from './sse'
 import { prisma } from './db'
 import { parsePhoneFromContactName, normalizePhone } from './whatsapp'
+import { logError, logInfo, logWarn } from './logger'
 
 const WAHA_API_URL = process.env.WAHA_API_URL || 'http://localhost:3002'
 const WAHA_API_KEY = process.env.WAHA_API_KEY || ''
@@ -54,7 +55,7 @@ export function ensureImportWorker(): void {
   if (g.importWorker) return
   g.importWorker = new Worker('import-history', processImport, { connection })
   g.importWorker.on('failed', (job, err) => {
-    console.error('[ImportWorker] Job falhou:', job?.id, err)
+    logError('import', `Job falhou: ${job?.id}`, { jobId: job?.id, error: String(err), data: job?.data }).catch(() => {})
   })
 }
 
@@ -67,6 +68,7 @@ async function processImport(job: Job<ImportJobData>) {
   }
 
   try {
+    logInfo('import', `Importação iniciada`, { businessId, wahaSession, chatsLimit, messagesPerChat }, businessId).catch(() => {})
     send({ type: 'status', message: 'Verificando número conectado...' })
 
     const business = await prisma.business.findUnique({ where: { id: businessId } })
@@ -111,7 +113,9 @@ async function processImport(job: Job<ImportJobData>) {
 
     const activeRes = chatsRes?.ok ? chatsRes : fallbackRes
     if (!activeRes?.ok) {
-      send({ type: 'error', message: 'Erro ao buscar conversas do WAHA. Verifique se o WhatsApp está conectado.' })
+      const errMsg = 'Erro ao buscar conversas do WAHA. Verifique se o WhatsApp está conectado.'
+      logError('import', errMsg, { businessId, wahaSession }, businessId).catch(() => {})
+      send({ type: 'error', message: errMsg })
       return
     }
 
@@ -260,12 +264,19 @@ async function processImport(job: Job<ImportJobData>) {
       data: { lastImportedAt: new Date() },
     })
 
+    logInfo('import', `Importação concluída`, {
+      businessId, wahaSession,
+      newConversations: importedConversations,
+      newMessages: importedMessages,
+      totalChats: total,
+    }, businessId).catch(() => {})
     send({
       type: 'done',
       imported: { conversations: importedConversations, messages: importedMessages },
       totalChatsProcessed: total,
     })
   } catch (err) {
+    logError('import', `Erro durante importação: ${String(err)}`, { businessId, wahaSession, error: String(err) }, businessId).catch(() => {})
     send({ type: 'error', message: String(err) })
   }
 }

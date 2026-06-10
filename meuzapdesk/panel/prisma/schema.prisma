@@ -141,3 +141,18 @@ model ConversationAlert {
   @@unique([conversationId, alertLevel])
   @@map("conversation_alerts")
 }
+
+model SystemLog {
+  id         Int       @id @default(autoincrement())
+  level      String    @db.VarChar(10)
+  context    String    @db.VarChar(100)
+  message    String
+  details    Json?
+  businessId Int?      @map("business_id")
+  createdAt  DateTime  @default(now()) @map("created_at")
+
+  @@index([createdAt(sort: Desc)])
+  @@index([level])
+  @@index([businessId])
+  @@map("system_logs")
+}

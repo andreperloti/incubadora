@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { verifyWebhookSecret, getWahaContactName, getWahaChatName, parsePhoneFromContactName, getWahaContactAvatar, getWahaContactPhone, buildOptionAutoReply, sendWhatsAppMessage, POLL_OPTIONS, getWahaMessageMedia, normalizePhone } from '@/lib/whatsapp'
 import { prisma } from '@/lib/db'
 import { broadcastToBusinessClients } from '@/lib/sse'
+import { logError, logInfo } from '@/lib/logger'
 
 // Payload do WAHA ao receber uma mensagem:
 // { event: "message", session: "nome-da-sessao", payload: { id, from, body, timestamp, notifyName, fromMe, ... } }
@@ -97,7 +98,7 @@ export async function POST(req: NextRequest) {
   })
 
   if (!business) {
-    console.error(`Business não encontrado para sessão WAHA: ${sessionName}`)
+    logError('webhook', `Business não encontrado para sessão WAHA: ${sessionName}`, { sessionName, phone }).catch(() => {})
     return NextResponse.json({ status: 'ok' })
   }
 
@@ -124,6 +125,9 @@ export async function POST(req: NextRequest) {
     rawChatId: rawFrom, customerName,
     text: effectiveText, waMessageId, waTimestamp,
     mediaUrl, mediaType,
+  }).catch((err: unknown) => {
+    logError('webhook', 'Erro ao processar mensagem', { phone, sessionName, error: String(err) }, business?.id).catch(() => {})
+    return NextResponse.json({ status: 'ok' })
   })
 }
 
@@ -200,7 +204,7 @@ function saveBotMessage(conversationId: number, content: string, businessId: num
   .then((msg) => {
     broadcastToBusinessClients(String(businessId), { type: 'new_message', conversationId, message: msg })
   })
-  .catch((err) => console.error('[bot-save]', err))
+  .catch((err) => logError('webhook', 'Erro ao salvar mensagem do bot', { conversationId, error: String(err) }).catch(() => {}))
 }
 
 async function handleMessage({
