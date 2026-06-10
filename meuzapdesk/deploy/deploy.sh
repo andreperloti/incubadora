@@ -5,6 +5,11 @@
 
 set -e
 
+# Carrega nvm para ter npm/node disponíveis
+export NVM_DIR="$HOME/.nvm"
+# shellcheck disable=SC1090
+[ -s "$NVM_DIR/nvm.sh" ] && source "$NVM_DIR/nvm.sh"
+
 REPO_DIR="/home/andreperloti/Documents/meuzapdesk"
 PANEL_DIR="$REPO_DIR/meuzapdesk/panel"
 SITE_DIR="$REPO_DIR/meuzapdesk/site"
