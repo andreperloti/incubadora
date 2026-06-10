@@ -31,10 +31,23 @@ export async function POST(req: NextRequest) {
   const payload = body.payload
 
 
-  // Ignora mensagens enviadas por nós mesmos, de grupos, newsletters ou broadcasts
+  // Mensagens enviadas por nós (fromMe) — do painel ou do celular direto
+  if (payload?.fromMe) {
+    const rawTo: string = payload?.to ?? ''
+    // Ignora grupos, newsletters e broadcasts
+    if (!rawTo || rawTo.endsWith('@g.us') || rawTo.endsWith('@newsletter') || rawTo.endsWith('@broadcast')) {
+      return NextResponse.json({ status: 'ignored' })
+    }
+    return handleOutgoingFromPhone({ sessionName, payload, rawTo })
+      .catch((err: unknown) => {
+        logError('webhook', 'Erro ao processar mensagem de saída', { sessionName, error: String(err) }).catch(() => {})
+        return NextResponse.json({ status: 'ok' })
+      })
+  }
+
+  // Ignora mensagens de entrada de grupos, newsletters ou broadcasts
   const rawFrom: string = payload?.from ?? ''
   if (
-    payload?.fromMe ||
     rawFrom.endsWith('@g.us') ||
     rawFrom.endsWith('@newsletter') ||
     rawFrom.endsWith('@broadcast')
@@ -241,6 +254,88 @@ function saveBotMessage(conversationId: number, content: string, businessId: num
     broadcastToBusinessClients(String(businessId), { type: 'new_message', conversationId, message: msg })
   })
   .catch((err) => logError('webhook', 'Erro ao salvar mensagem do bot', { conversationId, error: String(err) }).catch(() => {}))
+}
+
+async function handleOutgoingFromPhone({
+  sessionName, payload, rawTo,
+}: {
+  sessionName: string
+  payload: any
+  rawTo: string
+}) {
+  const waMessageId: string = typeof payload?.id === 'object'
+    ? (payload.id?._serialized ?? payload.id?.id ?? '')
+    : (payload?.id ?? '')
+
+  const business = await prisma.business.findFirst({ where: { wahaSession: sessionName } })
+  if (!business) return NextResponse.json({ status: 'ok' })
+
+  // Dedup: mensagem já salva pelo /api/messages ou bot → ignora
+  if (waMessageId) {
+    const existing = await prisma.message.findFirst({ where: { waMessageId } })
+    if (existing) return NextResponse.json({ status: 'ok' })
+  }
+
+  const text: string = payload?.body ?? ''
+  const waTimestamp: Date = payload?.timestamp ? new Date(payload.timestamp * 1000) : new Date()
+  const hasMedia: boolean = payload?.hasMedia === true
+  const msgType: string = payload?.type ?? payload?._data?.type ?? ''
+  const isAudio = hasMedia && (msgType === 'ptt' || msgType === 'audio' || msgType === 'voice')
+  const isFile = hasMedia && !isAudio
+  const fileLabel = msgType === 'image' ? '🖼️ Imagem'
+    : msgType === 'video' ? '🎥 Vídeo'
+    : '📎 Arquivo'
+  const content = text || (isAudio ? '🎵 Áudio' : isFile ? fileLabel : '')
+
+  if (!content) return NextResponse.json({ status: 'ignored' })
+
+  // Encontra conversa pelo telefone do cliente (rawTo)
+  const customerPhone = rawTo.endsWith('@c.us') ? normalizePhone(rawTo) : rawTo
+  const withoutDdi = customerPhone.startsWith('55') ? customerPhone.slice(2) : customerPhone
+  const phoneAliases = Array.from(new Set([customerPhone, withoutDdi, rawTo].filter(Boolean)))
+
+  const conversation = await prisma.conversation.findFirst({
+    where: {
+      businessId: business.id,
+      customerPhone: { in: phoneAliases },
+      status: { not: 'resolved' },
+    },
+    orderBy: { createdAt: 'desc' },
+  })
+
+  if (!conversation) return NextResponse.json({ status: 'ok' })
+
+  const wahaApiUrl = (process.env.WAHA_API_URL || 'http://localhost:3002').replace(/\/$/, '')
+  const rawMediaUrl: string | null = payload?.media?.url ?? null
+  const resolvedMediaUrl = rawMediaUrl ? rawMediaUrl.replace(/^https?:\/\/[^/]+/, wahaApiUrl) : null
+  const mediaType: string | null = payload?.media?.mimetype ?? null
+
+  const savedMessage = await prisma.message.create({
+    data: {
+      conversationId: conversation.id,
+      direction: 'out',
+      content,
+      waMessageId: waMessageId || null,
+      sentAt: waTimestamp,
+      mediaUrl: resolvedMediaUrl,
+      mediaType,
+    },
+    include: { senderUser: { select: { id: true, name: true } } },
+  })
+
+  // Agente respondeu pelo celular: zera timer de espera
+  await prisma.conversation.update({
+    where: { id: conversation.id },
+    data: { customerWaitingSince: null },
+  })
+
+  broadcastToBusinessClients(String(business.id), {
+    type: 'new_message',
+    conversationId: conversation.id,
+    message: savedMessage,
+  })
+
+  return NextResponse.json({ status: 'ok' })
 }
 
 async function handleMessage({
