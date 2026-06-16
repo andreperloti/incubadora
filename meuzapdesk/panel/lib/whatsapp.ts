@@ -411,7 +411,10 @@ export async function getWahaContactAvatar(
     )
     if (!res.ok) return null
     const data = await res.json()
-    return data?.profilePictureURL || null
+    const url: string | undefined = data?.profilePictureURL
+    // Reject non-HTTPS URLs — they would cause mixed-content warnings in the browser
+    if (!url || !url.startsWith('https://')) return null
+    return url
   } catch {
     return null
   }

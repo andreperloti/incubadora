@@ -114,7 +114,7 @@ function ContactAvatar({
   bg?: string
 }) {
   const [imgError, setImgError] = useState(false)
-  const showImg = avatarUrl && !imgError
+  const showImg = avatarUrl && !imgError && avatarUrl.startsWith('https://')
 
   return (
     <div
@@ -468,7 +468,8 @@ function ChatPanel({
                             src={proxiedUrl}
                             alt="Imagem"
                             className="max-w-[220px] rounded-lg"
-                            style={{ display: 'block' }}
+                            style={{ display: 'block', minHeight: 0 }}
+                            onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }}
                           />
                         </a>
                       )
