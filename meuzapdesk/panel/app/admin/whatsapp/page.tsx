@@ -416,9 +416,13 @@ export default function WhatsAppSetupPage() {
 
           {importResult && (
             <div className="mb-4 px-4 py-3 rounded-lg text-xs" style={{ background: '#064e3b', color: '#34d399' }}>
-              ✓ Importação concluída em <strong>{importResult.elapsed}</strong> —{' '}
-              <strong>{importResult.conversations}</strong> novas conversas,{' '}
-              <strong>{importResult.messages}</strong> mensagens importadas.
+              {importResult.conversations === 0 && importResult.messages === 0 ? (
+                <>✓ Tudo sincronizado em <strong>{importResult.elapsed}</strong> — nenhuma mensagem nova desde o último import.</>
+              ) : (
+                <>✓ Importação concluída em <strong>{importResult.elapsed}</strong> —{' '}
+                <strong>{importResult.conversations}</strong> novas conversas,{' '}
+                <strong>{importResult.messages}</strong> mensagens importadas.</>
+              )}
             </div>
           )}
 
