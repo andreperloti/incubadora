@@ -3,6 +3,7 @@ import { verifyWebhookSecret, getWahaContactName, getWahaChatName, parsePhoneFro
 import { prisma } from '@/lib/db'
 import { broadcastToBusinessClients } from '@/lib/sse'
 import { logError, logInfo } from '@/lib/logger'
+import { importQueue, ensureImportWorker } from '@/lib/import-queue'
 
 // Payload do WAHA ao receber uma mensagem:
 // { event: "message", session: "nome-da-sessao", payload: { id, from, body, timestamp, notifyName, fromMe, ... } }
@@ -185,6 +186,20 @@ async function handleSessionConnected(sessionName: string) {
     logInfo('webhook', `Reconexão WhatsApp: ${result.count} conversa(s) abandonada(s) encerrada(s)`, { sessionName, count: result.count }, business.id).catch(() => {})
     broadcastToBusinessClients(String(business.id), { type: 'session_reconnected', resolvedCount: result.count })
   }
+
+  // Reimport automático: recupera mensagens dos últimos 7 dias que possam ter
+  // sido perdidas durante a desconexão (ex: mensagens enviadas do celular, falha de webhook).
+  const since7d = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString()
+  ensureImportWorker()
+  importQueue.add('import', {
+    businessId: business.id,
+    wahaSession: sessionName,
+    chatsLimit: 25,
+    messagesPerChat: 50,
+    sinceDate: since7d,
+  }).catch(() => {})
+
+  logInfo('webhook', 'Reconexão WhatsApp: reimport automático agendado (últimos 7 dias)', { sessionName }, business.id).catch(() => {})
 
   return NextResponse.json({ status: 'ok', resolvedStale: result.count })
 }

@@ -22,7 +22,7 @@ function extractId(id: unknown): string {
 
 async function fetchWahaMessages(wahaSession: string, chatId: string): Promise<any[] | null> {
   const res = await fetch(
-    `${WAHA_API_URL}/api/${wahaSession}/chats/${encodeURIComponent(chatId)}/messages?limit=25&downloadMedia=false`,
+    `${WAHA_API_URL}/api/${wahaSession}/chats/${encodeURIComponent(chatId)}/messages?limit=50&downloadMedia=false`,
     { headers: wahaHeaders(), signal: AbortSignal.timeout(10_000) }
   ).catch(() => null)
 
