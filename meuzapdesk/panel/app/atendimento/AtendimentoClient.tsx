@@ -152,6 +152,9 @@ function ChatPanel({
 }) {
   // Mensagens otimistas: enviadas pelo agente mas ainda não confirmadas pelo poll
   const [optimisticMessages, setOptimisticMessages] = useState<Message[]>([])
+  const [olderMessages, setOlderMessages] = useState<Message[]>([])
+  const [olderMsgHasMore, setOlderMsgHasMore] = useState(conversation.messages.length >= 25)
+  const [olderMsgLoading, setOlderMsgLoading] = useState(false)
   const [status, setStatus] = useState(conversation.status)
   const [text, setText] = useState('')
   const [sending, setSending] = useState(false)
@@ -174,6 +177,8 @@ function ChatPanel({
   // Reset ao trocar de conversa
   useEffect(() => {
     setOptimisticMessages([])
+    setOlderMessages([])
+    setOlderMsgHasMore(conversation.messages.length >= 25)
     setStatus(conversation.status)
     setText('')
     discardRecording()
@@ -185,12 +190,39 @@ function ChatPanel({
     setStatus(conversation.status)
   }, [conversation.status])
 
-  // Mensagens finais: servidor + otimistas que ainda não vieram do servidor
+  async function loadOlderMessages() {
+    if (olderMsgLoading || !olderMsgHasMore) return
+    setOlderMsgLoading(true)
+    try {
+      const allCurrent = [...olderMessages, ...conversation.messages]
+      const oldest = allCurrent.reduce<Message | null>((min, m) => {
+        if (!min) return m
+        return new Date(m.sentAt) < new Date(min.sentAt) ? m : min
+      }, null)
+      if (!oldest) return
+      const before = Math.floor(new Date(oldest.sentAt).getTime() / 1000)
+      const res = await fetch(`/api/conversations/${conversation.id}/more-messages?before=${before}`)
+      if (res.ok) {
+        const data = await res.json()
+        setOlderMessages((prev) => {
+          const existingIds = new Set(prev.map((m) => m.id))
+          const newOnes = (data.messages as Message[]).filter((m) => !existingIds.has(m.id))
+          return [...newOnes, ...prev]
+        })
+        setOlderMsgHasMore(data.hasMore)
+      }
+    } finally {
+      setOlderMsgLoading(false)
+    }
+  }
+
+  // Mensagens finais: anteriores carregadas + servidor + otimistas que ainda não vieram do servidor
   const messages = useMemo(() => {
     const serverIds = new Set(conversation.messages.map((m) => m.id))
     const pending = optimisticMessages.filter((m) => !serverIds.has(m.id))
-    return [...conversation.messages, ...pending]
-  }, [conversation.messages, optimisticMessages])
+    const olderFiltered = olderMessages.filter((m) => !serverIds.has(m.id))
+    return [...olderFiltered, ...conversation.messages, ...pending]
+  }, [conversation.messages, optimisticMessages, olderMessages])
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'instant' })
@@ -408,6 +440,19 @@ function ChatPanel({
           backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='300' height='300' opacity='0.03'%3E%3Ctext x='10' y='60' font-size='40' fill='%23fff'%3E💬%3C/text%3E%3Ctext x='150' y='150' font-size='30' fill='%23fff'%3E🌿%3C/text%3E%3Ctext x='60' y='230' font-size='35' fill='%23fff'%3E💬%3C/text%3E%3Ctext x='220' y='280' font-size='28' fill='%23fff'%3E🌿%3C/text%3E%3C/svg%3E")`,
         }}
       >
+        {olderMsgHasMore && (
+          <div className="flex justify-center pb-2">
+            <button
+              onClick={loadOlderMessages}
+              disabled={olderMsgLoading}
+              className="text-xs px-3 py-1.5 rounded-full transition disabled:opacity-50"
+              style={{ background: '#202c33', color: '#53bdeb', border: '1px solid #2a3942' }}
+            >
+              {olderMsgLoading ? 'Carregando...' : 'Ver mensagens anteriores'}
+            </button>
+          </div>
+        )}
+
         {messages.map((msg) => {
             let prefix: string | null = null
             let body = msg.content
@@ -736,6 +781,8 @@ export function AtendimentoClient({
 
   const [conversations, setConversations] = useState<ConvSummary[]>(initial)
   const [recentConversations, setRecentConversations] = useState<ConvSummary[]>(initialRecent)
+  const [recentHasMore, setRecentHasMore] = useState(initialRecent.length >= 20)
+  const [recentLoading, setRecentLoading] = useState(false)
   const [search, setSearch] = useState('')
   const [selectedId, setSelectedId] = useState<number | null>(null)
   const [activeConv, setActiveConv] = useState<ConvDetail | null>(null)
@@ -889,9 +936,31 @@ export function AtendimentoClient({
   const refreshRecent = useCallback(() => {
     fetch('/api/conversations/recent')
       .then((r) => r.json())
-      .then((data) => setRecentConversations(data))
+      .then((data) => {
+        setRecentConversations(data.conversations ?? data)
+        if (data.hasMore !== undefined) setRecentHasMore(data.hasMore)
+      })
       .catch(() => {})
   }, [])
+
+  const loadMoreRecent = useCallback(async () => {
+    if (recentLoading || !recentHasMore) return
+    setRecentLoading(true)
+    try {
+      const res = await fetch(`/api/conversations/recent?skip=${recentConversations.length}`)
+      if (res.ok) {
+        const data = await res.json()
+        setRecentConversations((prev) => {
+          const existingIds = new Set(prev.map((c) => c.id))
+          const newOnes = (data.conversations as ConvSummary[]).filter((c) => !existingIds.has(c.id))
+          return [...prev, ...newOnes]
+        })
+        setRecentHasMore(data.hasMore)
+      }
+    } finally {
+      setRecentLoading(false)
+    }
+  }, [recentLoading, recentHasMore, recentConversations.length])
 
   // Atualiza a lista ao retornar para a aba/janela (evita dados stale após navegar)
   useEffect(() => {
@@ -1381,6 +1450,19 @@ export function AtendimentoClient({
                       </button>
                     )
                   })}
+
+                  {recentHasMore && (
+                    <div className="flex justify-center py-3">
+                      <button
+                        onClick={loadMoreRecent}
+                        disabled={recentLoading}
+                        className="text-xs px-4 py-1.5 rounded-full transition disabled:opacity-50"
+                        style={{ background: '#1a2e3a', color: '#8696a0', border: '1px solid #2a3942' }}
+                      >
+                        {recentLoading ? 'Carregando...' : 'Ver mais conversas antigas'}
+                      </button>
+                    </div>
+                  )}
                 </>
               )}
             </>

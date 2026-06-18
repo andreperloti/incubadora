@@ -1,18 +1,22 @@
-import { NextResponse } from 'next/server'
+import { NextRequest, NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions, getSessionBusinessId } from '@/lib/auth'
 import { prisma } from '@/lib/db'
+
+const PAGE_SIZE = 20
 
 function normalizePhone(phone: string): string {
   return phone.replace(/@\S+$/, '').replace(/\D/g, '')
 }
 
-export async function GET() {
+export async function GET(req: NextRequest) {
   const session = await getServerSession(authOptions)
   if (!session) return NextResponse.json({ error: 'Não autorizado' }, { status: 401 })
 
   const businessId = getSessionBusinessId(session)
   if (!businessId) return NextResponse.json({ error: 'Não autorizado' }, { status: 401 })
+
+  const skip = parseInt(req.nextUrl.searchParams.get('skip') ?? '0', 10) || 0
 
   const include = {
     assignedUser: { select: { id: true, name: true } },
@@ -20,7 +24,6 @@ export async function GET() {
     alerts: true,
   }
 
-  // Busca telefones ativos para exclusão via SQL (evita carregar 100 resolvidas só pra filtrar)
   const active = await prisma.conversation.findMany({
     where: { businessId, status: { in: ['in_queue', 'in_progress', 'waiting_menu'] } },
     select: { customerPhone: true },
@@ -28,8 +31,9 @@ export async function GET() {
 
   const activePhones = active.map((c) => c.customerPhone)
 
-  // Exclui diretamente no banco conversas cujo telefone está ativo
-  // Carrega apenas 30 candidatas (precisamos de 20 únicas após dedup de número)
+  // Busca candidatas suficientes para obter PAGE_SIZE únicas após dedup
+  // Usa um multiplicador generoso para cobrir duplicatas de número
+  const FETCH_SIZE = (skip + PAGE_SIZE) * 3 + 30
   const recentRaw = await prisma.conversation.findMany({
     where: {
       businessId,
@@ -38,17 +42,19 @@ export async function GET() {
     },
     include,
     orderBy: { lastCustomerMessageAt: 'desc' },
-    take: 30,
+    take: FETCH_SIZE,
   })
 
-  // Dedup em memória apenas para remover variações do mesmo número dentro dos resultados
   const seenNormalized = new Set<string>()
-  const recent = recentRaw.filter((c) => {
+  const allUnique = recentRaw.filter((c) => {
     const phoneNorm = normalizePhone(c.customerPhone)
     if (seenNormalized.has(phoneNorm)) return false
     seenNormalized.add(phoneNorm)
     return true
-  }).slice(0, 20)
+  })
 
-  return NextResponse.json(recent)
+  const page = allUnique.slice(skip, skip + PAGE_SIZE)
+  const hasMore = allUnique.length > skip + PAGE_SIZE
+
+  return NextResponse.json({ conversations: page, hasMore })
 }
