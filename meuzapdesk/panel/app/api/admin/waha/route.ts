@@ -68,22 +68,11 @@ export async function POST(req: NextRequest) {
 
   if (action === 'stop') {
     const ok = await stopWahaSession(sessionName)
-
     if (ok) {
-      logInfo('waha', `Sessão encerrada e conversas limpas`, { sessionName }, businessId).catch(() => {})
-      await prisma.message.deleteMany({
-        where: { conversation: { businessId } },
-      })
-      await prisma.conversationAlert.deleteMany({
-        where: { conversation: { businessId } },
-      })
-      await prisma.conversation.deleteMany({
-        where: { businessId },
-      })
+      logInfo('waha', `Sessão encerrada`, { sessionName }, businessId).catch(() => {})
     } else {
       logError('waha', `Falha ao encerrar sessão`, { sessionName }, businessId).catch(() => {})
     }
-
     return NextResponse.json({ success: ok })
   }
 
