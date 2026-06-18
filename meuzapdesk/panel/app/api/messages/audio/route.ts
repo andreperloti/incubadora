@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
-import { authOptions } from '@/lib/auth'
+import { authOptions, getSessionBusinessId, getSessionUserId } from '@/lib/auth'
 import { prisma } from '@/lib/db'
 import { sendWhatsAppVoice } from '@/lib/whatsapp'
 import { broadcastToBusinessClients } from '@/lib/sse'
@@ -11,6 +11,8 @@ import { execFileSync } from 'child_process'
 
 const TMP_DIR = '/tmp/meuzapdesk-audio'
 const WEBHOOK_BASE = process.env.WAHA_WEBHOOK_BASE_URL || 'http://host.docker.internal:3000'
+
+const MAX_AUDIO_BYTES = 25 * 1024 * 1024 // 25 MB
 
 // Converte qualquer formato de áudio para OGG/Opus usando ffmpeg local
 function convertToOgg(inputBuffer: Buffer): Buffer {
@@ -23,7 +25,7 @@ function convertToOgg(inputBuffer: Buffer): Buffer {
     '-f', 'ogg',
     'pipe:1',
     '-loglevel', 'error',
-  ], { input: inputBuffer, maxBuffer: 10 * 1024 * 1024 })
+  ], { input: inputBuffer, maxBuffer: 10 * 1024 * 1024, timeout: 30000 })
 }
 
 export async function POST(req: NextRequest) {
@@ -38,9 +40,11 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Dados inválidos' }, { status: 400 })
   }
 
+  const businessId = getSessionBusinessId(session)
+  if (!businessId) return NextResponse.json({ error: 'Não autorizado' }, { status: 401 })
+  const userId = getSessionUserId(session)
+  if (!userId) return NextResponse.json({ error: 'Não autorizado' }, { status: 401 })
   const user = session.user as any
-  const businessId = parseInt(user.businessId)
-  const userId = parseInt(user.id)
 
   const conversation = await prisma.conversation.findFirst({
     where: { id: conversationId, businessId },
@@ -53,6 +57,10 @@ export async function POST(req: NextRequest) {
 
   const arrayBuffer = await audioFile.arrayBuffer()
   const inputBuffer = Buffer.from(arrayBuffer)
+
+  if (inputBuffer.length > MAX_AUDIO_BYTES) {
+    return NextResponse.json({ error: 'Arquivo de áudio muito grande (máx 25 MB)' }, { status: 413 })
+  }
 
   // Converte para OGG/Opus (sendVoice exige este formato para PTT)
   let oggBuffer: Buffer

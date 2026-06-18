@@ -928,6 +928,7 @@ export function AtendimentoClient({
     let es: EventSource
     let closed = false
     let reconnecting = false
+    let backoffMs = 3000
 
     function connect() {
       if (closed) return
@@ -935,6 +936,7 @@ export function AtendimentoClient({
 
       es.onopen = () => {
         sseActiveRef.current = true
+        backoffMs = 3000  // reset após conexão bem-sucedida
         // Ao reconectar, busca mensagens perdidas durante a desconexão
         if (reconnecting && activeIdRef.current !== null) {
           loadConversationRef.current?.(activeIdRef.current)
@@ -1014,7 +1016,8 @@ export function AtendimentoClient({
         es.close()
         reconnecting = true
         if (!closed) {
-          setTimeout(connect, 3000)
+          setTimeout(connect, backoffMs)
+          backoffMs = Math.min(backoffMs * 2, 30000) // backoff: 3s → 6s → 12s → 30s max
         }
       }
     }

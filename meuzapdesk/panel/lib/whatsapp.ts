@@ -435,13 +435,19 @@ export async function getWahaContactAvatar(
     const contactId = toChatId(phone)
     const res = await fetch(
       `${WAHA_API_URL}/api/contacts/profile-picture?contactId=${encodeURIComponent(contactId)}&session=${encodeURIComponent(session)}`,
-      { headers: wahaHeaders() }
+      { headers: wahaHeaders(), signal: AbortSignal.timeout(5000) }
     )
     if (!res.ok) return null
     const data = await res.json()
     const url: string | undefined = data?.profilePictureURL
-    // Reject non-HTTPS URLs — they would cause mixed-content warnings in the browser
     if (!url || !url.startsWith('https://')) return null
+    // Bloqueia SSRF: rejeita URLs apontando para IPs privados/localhost
+    try {
+      const { hostname } = new URL(url)
+      if (/^(localhost$|127\.|10\.|192\.168\.|172\.(1[6-9]|2[0-9]|3[01])\.)/.test(hostname)) return null
+    } catch {
+      return null
+    }
     return url
   } catch {
     return null
@@ -459,7 +465,7 @@ export async function getWahaContactPhone(
   try {
     const res = await fetch(
       `${WAHA_API_URL}/api/contacts?contactId=${encodeURIComponent(chatId)}&session=${encodeURIComponent(session)}`,
-      { headers: wahaHeaders() }
+      { headers: wahaHeaders(), signal: AbortSignal.timeout(5000) }
     )
     if (!res.ok) return null
     const data = await res.json()

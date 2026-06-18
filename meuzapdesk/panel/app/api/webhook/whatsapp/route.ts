@@ -112,7 +112,7 @@ export async function POST(req: NextRequest) {
 
   if (!business) {
     logError('webhook', `Business não encontrado para sessão WAHA: ${sessionName}`, { sessionName, phone }).catch(() => {})
-    return NextResponse.json({ status: 'ok' })
+    return NextResponse.json({ error: 'session not found' }, { status: 422 })
   }
 
   // Resolve nome do contato:
