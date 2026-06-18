@@ -235,17 +235,22 @@ async function processImport(job: Job<ImportJobData>) {
         const waMessageId = extractId(msg.id)
         if (!waMessageId || existingIds.has(waMessageId)) continue
 
-        await prisma.message.create({
-          data: {
-            conversationId: conversation.id,
-            direction: msg.fromMe ? 'out' : 'in',
-            content: String(msg.body),
-            waMessageId,
-            sentAt: msg.timestamp ? new Date(msg.timestamp * 1000) : new Date(),
-          },
-        })
-        importedMessages++
-        newMessages++
+        try {
+          await prisma.message.create({
+            data: {
+              conversationId: conversation.id,
+              direction: msg.fromMe ? 'out' : 'in',
+              content: String(msg.body),
+              waMessageId,
+              sentAt: msg.timestamp ? new Date(msg.timestamp * 1000) : new Date(),
+            },
+          })
+          importedMessages++
+          newMessages++
+        } catch (e: any) {
+          if (e.code !== 'P2002') throw e
+          // waMessageId já existe em outra conversa — ignorar silenciosamente
+        }
       }
 
       if (newMessages > 0) {
