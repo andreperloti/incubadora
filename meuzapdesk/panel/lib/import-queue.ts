@@ -144,9 +144,10 @@ async function processImport(job: Job<ImportJobData>) {
 
     let importedConversations = 0
     let importedMessages = 0
+    let processedCount = 0
+    const BATCH_SIZE = 3
 
-    for (let i = 0; i < individualChats.length; i++) {
-      const chat = individualChats[i]
+    async function processChat(chat: any) {
       const chatId = extractId(chat.id)
       const chatName = chat.name || chat.displayName || ''
 
@@ -154,7 +155,7 @@ async function processImport(job: Job<ImportJobData>) {
       if (chatId.endsWith('@lid')) {
         const contactRes = await fetch(
           `${WAHA_API_URL}/api/${wahaSession}/contacts/${encodeURIComponent(chatId)}`,
-          { headers: wahaHeaders() }
+          { headers: wahaHeaders(), signal: AbortSignal.timeout(5000) }
         ).catch(() => null)
         if (contactRes?.ok) {
           const contactData = await contactRes.json()
@@ -165,11 +166,9 @@ async function processImport(job: Job<ImportJobData>) {
       const customerPhone = resolveCustomerPhone(resolvedChatId, chatName)
       const customerName = chatName || customerPhone
 
-      send({ type: 'progress', current: i + 1, total, chatName: customerName })
-
       const msgsRes = await fetch(
         `${WAHA_API_URL}/api/${wahaSession}/chats/${encodeURIComponent(resolvedChatId)}/messages?limit=${messagesPerChat}&downloadMedia=false`,
-        { headers: wahaHeaders() }
+        { headers: wahaHeaders(), signal: AbortSignal.timeout(10000) }
       ).catch(() => null)
 
       const overviewLastMsgTs: number | undefined = (chat.lastMessage as any)?.timestamp
@@ -189,7 +188,6 @@ async function processImport(job: Job<ImportJobData>) {
             : fallbackLastMsgAt)
         : fallbackLastMsgAt
 
-      // Busca com e sem DDI para evitar duplicatas por formato diferente
       const withoutDdi = customerPhone.startsWith('55') ? customerPhone.slice(2) : customerPhone
       const searchPhones = Array.from(new Set([customerPhone, withoutDdi, resolvedChatId, chatId].filter(Boolean)))
       let conversation = await prisma.conversation.findFirst({
@@ -213,54 +211,51 @@ async function processImport(job: Job<ImportJobData>) {
           type: 'conversation_imported',
           conversation: { id: conversation.id, customerPhone, customerName },
         })
-      } else {
-        if (!conversation.customerName || conversation.customerName === conversation.customerPhone) {
-          await prisma.conversation.update({
-            where: { id: conversation.id },
-            data: { customerName },
-          })
-        }
+      } else if (!conversation.customerName || conversation.customerName === conversation.customerPhone) {
+        await prisma.conversation.update({
+          where: { id: conversation.id },
+          data: { customerName },
+        })
       }
 
-      if (textMessages.length === 0) continue
+      processedCount++
+      send({ type: 'progress', current: processedCount, total, chatName: customerName })
 
-      const existing = await prisma.message.findMany({
-        where: { conversationId: conversation.id },
-        select: { waMessageId: true },
-      })
-      const existingIds = new Set(existing.map((m) => m.waMessageId).filter(Boolean))
+      if (textMessages.length === 0) return
 
-      let newMessages = 0
-      for (const msg of textMessages) {
-        const waMessageId = extractId(msg.id)
-        if (!waMessageId || existingIds.has(waMessageId)) continue
-
-        try {
-          await prisma.message.create({
-            data: {
-              conversationId: conversation.id,
-              direction: msg.fromMe ? 'out' : 'in',
+      // createMany com skipDuplicates substitui findMany + loop de creates individuais
+      const result = await prisma.message.createMany({
+        data: textMessages
+          .map((msg: any) => {
+            const waMessageId = extractId(msg.id)
+            if (!waMessageId) return null
+            return {
+              conversationId: conversation!.id,
+              direction: (msg.fromMe ? 'out' : 'in') as 'out' | 'in',
               content: String(msg.body),
               waMessageId,
               sentAt: msg.timestamp ? new Date(msg.timestamp * 1000) : new Date(),
-            },
+            }
           })
-          importedMessages++
-          newMessages++
-        } catch (e: any) {
-          if (e.code !== 'P2002') throw e
-          // waMessageId já existe em outra conversa — ignorar silenciosamente
-        }
-      }
+          .filter((m): m is NonNullable<typeof m> => m !== null),
+        skipDuplicates: true,
+      })
 
-      if (newMessages > 0) {
-        // Usa conversation_imported para não crashar o handler de SSE do atendimento,
-        // que espera o campo message presente em eventos new_message
+      if (result.count > 0) {
+        importedMessages += result.count
         broadcastToBusinessClients(String(businessId), {
           type: 'conversation_imported',
-          conversation: { id: conversation.id, customerPhone, customerName },
+          conversation: { id: conversation!.id, customerPhone, customerName },
         })
       }
+    }
+
+    // Processa chats em batches paralelos de BATCH_SIZE
+    for (let i = 0; i < individualChats.length; i += BATCH_SIZE) {
+      const batch = individualChats.slice(i, i + BATCH_SIZE)
+      await Promise.all(batch.map((chat: any) => processChat(chat).catch((err) => {
+        logWarn('import', `Erro ao processar chat: ${err}`, { businessId }).catch(() => {})
+      })))
     }
 
     // Salva timestamp do último import bem-sucedido
