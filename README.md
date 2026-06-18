@@ -6,213 +6,277 @@ Sistema de atendimento WhatsApp para oficinas mecânicas — SaaS com uma instâ
 
 | Camada | Tecnologia |
 |--------|-----------|
-| WhatsApp | WAHA (WhatsApp HTTP API, self-hosted) |
+| WhatsApp | WAHA Plus (Chrome engine, self-hosted) |
 | Painel Web | Next.js 14 + TypeScript (App Router) |
-| Banco de dados | PostgreSQL 16 |
-| Cache / sessões | Redis 7 |
+| Banco de dados | PostgreSQL 16 (Docker) |
+| Cache / filas | Redis 7 (Docker) |
 | Autenticação | NextAuth.js (JWT) + Gravatar |
-| Infraestrutura | Docker Compose |
-| Proxy | Nginx |
+| Infraestrutura | Docker Compose + PM2 + Nginx |
+| Proxy reverso | Nginx |
 
-## Estrutura
+---
 
+## Requisitos do Servidor (Produção)
+
+> Ambiente testado: GCP VM com Ubuntu 22.04 LTS (x86_64).
+
+### Sistema Operacional
+- Ubuntu 22.04 LTS (recomendado) — x86_64
+- **Não use ARM** para produção: a imagem Chrome do WAHA não tem build ARM nativo
+
+### Dependências obrigatórias
+
+| Dependência | Versão testada | Por que é necessária |
+|-------------|---------------|----------------------|
+| **Node.js** | v22.x (via nvm) | Rodar o painel Next.js via PM2 |
+| **npm** | v10.x | Instalar dependências |
+| **Docker** | v29.x | Rodar PostgreSQL, Redis e WAHA |
+| **Docker Compose** | v2.x (plugin) | Orquestrar os containers |
+| **PM2** | v6.x | Processo daemon do painel e site |
+| **Nginx** | v1.18.x | Proxy reverso (HTTPS + vhosts) |
+| **ffmpeg** | v4.4+ | Converter áudio OGG/Opus do WhatsApp para WebM (necessário para reprodução no browser) |
+
+### Instalar dependências no servidor
+
+```bash
+# Node.js via nvm
+curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.0/install.sh | bash
+source ~/.bashrc
+nvm install 22
+nvm use 22
+
+# PM2
+npm install -g pm2
+
+# Docker (Ubuntu)
+curl -fsSL https://get.docker.com | sh
+sudo usermod -aG docker $USER
+# (logout + login para aplicar o grupo)
+
+# ffmpeg — necessário para conversão de áudio
+sudo apt-get install -y ffmpeg
+
+# Nginx
+sudo apt-get install -y nginx
 ```
-meuzapdesk/
-├── docker-compose.yml          # Stack de produção
-├── docker-compose.dev.yml      # Dev local: PostgreSQL (5433), Redis (6379), WAHA (3002)
-├── .env.example                # Variáveis de ambiente (copiar para .env)
-├── nginx.conf                  # Configuração do proxy reverso
-├── n8n-workflows/              # Workflows exportados do n8n
-│   ├── receive-message.json    # Recepção de mensagem + menu automático
-│   ├── send-reply.json         # Envio de resposta
-│   └── alert-cron.json         # Cron de alertas de SLA (a cada 1 min)
-└── panel/                      # Aplicação Next.js
-    ├── app/
-    │   ├── (auth)/login/       # Tela de login
-    │   ├── atendimento/        # Fila + chat de atendimento (página principal)
-    │   ├── dashboard/          # Métricas e relatórios (OWNER)
-    │   ├── admin/
-    │   │   ├── users/          # Gestão de usuários (OWNER)
-    │   │   └── whatsapp/       # Configuração da sessão WAHA (OWNER)
-    │   └── api/
-    │       ├── auth/           # NextAuth
-    │       ├── conversations/  # CRUD de conversas
-    │       ├── messages/       # Envio de mensagens com assinatura
-    │       ├── sse/            # Server-Sent Events (tempo real)
-    │       └── webhook/whatsapp/ # Webhook do WAHA
-    ├── components/
-    │   └── LeftNavStrip.tsx    # Barra de navegação lateral (estilo WhatsApp)
-    ├── lib/
-    │   ├── db.ts               # Prisma client
-    │   ├── whatsapp.ts         # Helper WAHA API + buildSignedMessage
-    │   ├── auth.ts             # NextAuth + Gravatar
-    │   └── sse.ts              # Gerenciador SSE
-    └── prisma/schema.prisma    # Schema do banco
+
+### Imagem WAHA — IMPORTANTE
+
+Sempre use a engine **Chrome**. A engine `noweb` **não suporta** sincronização de histórico.
+
+```yaml
+# docker-compose.prod.yml
+image: perloti/waha-plus:chrome-amd64   # mirror pessoal, sem expiração de credenciais
 ```
+
+> As credenciais do Docker Hub da devlikeapro expiram. Use sempre a imagem `perloti/waha-plus:chrome-amd64`.
+
+---
 
 ## Desenvolvimento Local
 
-**Pré-requisito:** Docker Desktop rodando.
-
-### 1. Suba o banco, Redis e WAHA
+**Pré-requisitos:** Docker Desktop + Node.js 22 + ffmpeg.
 
 ```bash
-cd meuzapdesk
-docker compose -f docker-compose.dev.yml up -d
-```
+# 1. Suba PostgreSQL (5433), Redis (6379) e WAHA (3002)
+docker compose -f meuzapdesk/docker-compose.dev.yml up -d
 
-### 2. Configure o ambiente do painel
-
-```bash
-cd panel
-cp .env.local.example .env.local
+# 2. Configure o ambiente
+cp meuzapdesk/panel/.env.local.example meuzapdesk/panel/.env.local
 # Edite .env.local se necessário (credenciais já configuradas para dev)
+
+# 3. Instale dependências e gere o Prisma client
+npm --prefix meuzapdesk/panel install
+npx --prefix meuzapdesk/panel prisma generate
+
+# 4. Aplique o schema inicial no banco dev
+docker exec meuzapdesk-postgres-1 psql -U meuzapdesk -d meuzapdesk_dev \
+  -f meuzapdesk/deploy/schema.sql
+
+# 5. Rode o painel
+npm --prefix meuzapdesk/panel run dev        # http://localhost:3000
+
+# 6. (Opcional) Rode o site de marketing
+npm --prefix meuzapdesk/site run dev -- --port 3001   # http://localhost:3001
 ```
 
-### 3. Instale dependências e inicialize o banco
+> **ATENÇÃO:** Nunca rode `npm run build` com o dev server ativo. O build sobrescreve
+> chunks do cache e o servidor perde o CSS. Se acontecer: `rm -rf meuzapdesk/panel/.next`
+> e reinicie o dev server.
 
-```bash
-npm install
-npx prisma generate
-# Aplicar migrations via psql (Prisma CLI não conecta direto ao container):
-docker exec meuzapdesk-postgres-1 psql -U meuzapdesk -d meuzapdesk_dev -f prisma/migrations/...
-npx prisma db seed          # cria usuários de teste
-```
-
-### 4. Rode o painel
-
-```bash
-npm run dev
-```
-
-> **ATENÇÃO:** Nunca rode `npm run build` com o dev server ativo. O build sobrescreve chunks do cache e
-> o servidor perde o CSS. Se isso acontecer: `rm -rf .next` e reinicie o dev server.
-
-Acesse [http://localhost:3000](http://localhost:3000) e faça login com:
+### Credenciais de dev
 
 | Perfil | E-mail | Senha |
 |--------|--------|-------|
 | Admin (dono) | `admin@teste.com` | `admin123` |
 | Mecânico | `mecanico@teste.com` | `mecanico123` |
 
+### Migrations em dev
+
+Prisma CLI não conecta ao banco dentro do Docker a partir do host. Aplique via psql:
+
+```bash
+# Aplicar migrations pendentes (mesmo script do deploy)
+POSTGRES_DB=meuzapdesk_dev bash meuzapdesk/deploy/migrate.sh
+
+# Ou manualmente:
+docker exec meuzapdesk-postgres-1 psql -U meuzapdesk -d meuzapdesk_dev -c "SQL AQUI"
+```
+
 ---
 
-## Interface
+## Deploy em Produção
 
-### Navegação lateral (estilo WhatsApp)
-A barra de navegação fica na lateral esquerda (62px), com ícones para:
-- **Atendimento** — fila de conversas + chat
-- **Métricas** — dashboard (OWNER)
-- **Admin** — usuários e sessão WhatsApp (OWNER)
+O deploy é feito a partir do servidor GCP via script:
 
-O avatar do usuário usa Gravatar com fallback para iniciais do nome.
+```bash
+# No servidor (GCP):
+bash ~/Documents/meuzapdesk/meuzapdesk/deploy/deploy.sh
+```
 
-### Chat (tema escuro)
-O chat usa a paleta do WhatsApp Web no tema escuro:
+O script executa automaticamente:
+1. `git pull origin main`
+2. `npm ci` (painel + site)
+3. `prisma generate`
+4. `bash migrate.sh` — aplica migrations SQL pendentes
+5. `next build` (painel + site)
+6. `pm2 restart` dos processos
 
-| Elemento | Cor |
-|----------|-----|
-| Fundo do chat | `#0b141a` |
-| Bolha recebida | `#202c33` |
-| Bolha enviada | `#005c4b` |
-| Texto das bolhas | `#e9edef` |
-| Nome do remetente | `#53bdeb` (azul) |
+### Migrations SQL
 
-### Assinatura de mensagens
-Mensagens enviadas por atendentes chegam ao cliente com o nome em negrito:
+Ficam em `meuzapdesk/migrations/` e são gerenciadas por `deploy/migrate.sh`:
+- Rastreia migrations aplicadas na tabela `_migrations` do banco
+- Cada arquivo é executado apenas uma vez (idempotente por design)
+- Executadas automaticamente a cada deploy
 
 ```
-*André (Admin):*
-Que horas você pode vir?
+meuzapdesk/migrations/
+├── 001_indexes_and_unique.sql   # Índices de performance + unique wa_message_id
+├── 002_system_logs.sql          # Tabela de logs do sistema
+└── 003_fix_duplicate_wa_message_id.sql  # Limpeza de duplicatas (histórico)
+```
+
+Para adicionar uma migration nova:
+```bash
+# Criar arquivo com próximo número sequencial
+vim meuzapdesk/migrations/004_minha_mudanca.sql
+
+# Testar em dev
+POSTGRES_DB=meuzapdesk_dev bash meuzapdesk/deploy/migrate.sh
+
+# Commit + push → próximo deploy aplica automaticamente
+```
+
+### Configuração de ambiente (produção)
+
+Arquivo: `meuzapdesk/panel/.env.local`
+
+```bash
+DATABASE_URL="postgresql://meuzapdesk:SENHA@localhost:5432/meuzapdesk_prod"
+NEXTAUTH_URL="https://app.meuzapdesk.com.br"
+NEXTAUTH_SECRET="gere-com-openssl-rand-base64-32"
+
+WAHA_API_URL="http://localhost:3002"
+WAHA_API_KEY="sua-api-key"
+WAHA_WEBHOOK_SECRET="sua-webhook-secret"
+WAHA_WEBHOOK_BASE_URL="http://host.docker.internal:3004"  # porta do PM2
+
+ALERT_WARN_MINUTES=5
+ALERT_URGENT_MINUTES=15
+```
+
+### Infraestrutura PM2
+
+| Processo | Porta | Domínio |
+|----------|-------|---------|
+| `meuzapdesk-panel` | 3004 | app.meuzapdesk.com.br |
+| `meuzapdesk-site` | 3000 | meuzapdesk.com.br |
+
+---
+
+## Estrutura do Repositório
+
+```
+meuzapdesk/
+├── docker-compose.dev.yml      # Dev: PostgreSQL (5433), Redis (6379), WAHA (3002)
+├── docker-compose.prod.yml     # Prod: PostgreSQL (5432), Redis (6379), WAHA (3002)
+├── deploy/
+│   ├── deploy.sh               # Script de deploy completo
+│   ├── migrate.sh              # Aplica migrations SQL pendentes
+│   └── schema.sql              # Schema inicial (instalação do zero)
+├── migrations/                 # Migrations SQL incrementais
+└── panel/                      # Aplicação Next.js
+    ├── app/
+    │   ├── atendimento/        # Fila + chat (página principal)
+    │   ├── dashboard/          # Métricas (OWNER)
+    │   ├── admin/              # Usuários, sessão WhatsApp, logs (OWNER)
+    │   ├── master/             # Gestão de empresas (SUPER_ADMIN)
+    │   └── api/
+    │       ├── webhook/whatsapp/  # Webhook WAHA (entrada de mensagens)
+    │       ├── conversations/     # CRUD de conversas + paginação
+    │       ├── messages/          # Envio de texto, áudio e arquivo
+    │       ├── media/             # Proxy de mídia com conversão de áudio
+    │       ├── sse/               # Server-Sent Events (tempo real)
+    │       └── internal/          # Bot automático
+    ├── components/
+    │   ├── AudioPlayer.tsx     # Player de áudio estilo WhatsApp
+    │   └── LeftNavStrip.tsx    # Barra de navegação lateral
+    ├── lib/
+    │   ├── db.ts               # Prisma client singleton
+    │   ├── whatsapp.ts         # WAHA API helpers + buildSignedMessage
+    │   ├── auth.ts             # NextAuth + Gravatar
+    │   ├── sse.ts              # Gerenciador SSE em memória
+    │   ├── import-queue.ts     # Worker BullMQ para importação de histórico
+    │   └── logger.ts           # Logs persistidos em system_logs
+    └── prisma/schema.prisma    # Schema do banco
 ```
 
 ---
 
 ## Fluxo de Atendimento
 
-1. Cliente envia mensagem → Webhook WAHA recebe → menu automático enviado
-2. Cliente escolhe opção (1-4) → conversa entra na fila (`in_queue`)
-3. Mecânico vê a fila no painel, ordenada por `customerWaitingSince` (tempo que o cliente espera por humano)
-4. Mecânico abre a conversa e responde → mensagem enviada com assinatura (`*Nome:*\nmensagem`)
-5. Se conversa ficar sem resposta por 5+ min → alerta amarelo no painel
-6. Se 15+ min → alerta vermelho urgente
-7. Mecânico encerra a conversa → status `resolved`
+1. Cliente envia mensagem → Webhook WAHA → menu automático enviado
+2. Cliente escolhe opção (1–4) → conversa entra na fila (`in_queue`)
+3. Atendente vê a fila ordenada por tempo de espera (`customerWaitingSince`)
+4. Atendente responde → mensagem enviada com assinatura `*Nome (Cargo):*\nmensagem`
+5. SLA: alerta amarelo após `ALERT_WARN_MINUTES` min, vermelho após `ALERT_URGENT_MINUTES` min
+6. Atendente encerra → status `resolved`
 
-### Lógica da fila (`customerWaitingSince`)
+### Importação de histórico
 
-A posição na fila é determinada pelo campo `customerWaitingSince`, que representa o momento em que o cliente **começou a esperar por um atendente humano**:
+Acesse **Admin → WhatsApp → Sincronizar histórico**:
+- Importa as últimas 25 conversas × 25 mensagens por padrão
+- "Reimportar" faz importação completa (ignora filtro incremental)
+- Paginação no sidebar: "Ver mais conversas antigas" / "Ver mensagens anteriores"
+- Áudio e imagens do histórico ficam disponíveis via proxy `/api/media`
 
-- **Preservado** quando o cliente manda mensagens de acompanhamento ou o bot responde automaticamente
-- **Resetado para `null`** quando um humano responde (conversa saiu da fila)
-- **Renovado** quando o cliente envia nova mensagem após ter sido atendido
+### Mensagens enviadas fora do painel
 
-Isso garante que um cliente não perca sua posição na fila por causa de respostas automáticas do bot.
-
----
-
-## Início Rápido (Produção)
-
-### 1. Configure as variáveis de ambiente
-
-```bash
-cp meuzapdesk/.env.example meuzapdesk/.env
-# Edite .env com suas credenciais
-```
-
-### 2. Suba o stack
-
-```bash
-cd meuzapdesk
-docker compose --env-file .env up -d --build
-```
-
-### 3. Execute as migrations
-
-```bash
-docker compose exec nextjs npx prisma migrate deploy
-```
-
-### 4. Crie o primeiro usuário (admin)
-
-```bash
-docker compose exec nextjs node -e "
-const { PrismaClient } = require('@prisma/client');
-const bcrypt = require('bcryptjs');
-const prisma = new PrismaClient();
-async function main() {
-  const hash = await bcrypt.hash('SuaSenha123', 12);
-  const biz = await prisma.business.create({
-    data: {
-      name: 'Minha Oficina',
-      whatsappNumber: '5511999999999',
-      wahaSession: 'minha-sessao'
-    }
-  });
-  await prisma.user.create({
-    data: { businessId: biz.id, name: 'André', email: 'andre@oficina.com', passwordHash: hash, role: 'OWNER' }
-  });
-  console.log('Usuário criado!');
-}
-main().finally(() => prisma.\$disconnect());
-"
-```
-
-### 5. Configure o Webhook no WAHA
-
-- URL: `https://painel.seudominio.com/api/webhook/whatsapp?secret=SEU_WAHA_WEBHOOK_SECRET`
-- Configure via painel WAHA em `https://waha.seudominio.com`
-
-### 6. (Opcional) Importe os workflows no n8n
-
-Acesse o painel n8n e importe os arquivos de `n8n-workflows/`.
+Mensagens enviadas diretamente pelo celular (sem usar o painel) são capturadas automaticamente via evento `message.any` do WAHA e aparecem no chat em tempo real.
 
 ---
 
 ## Roles
 
-| Role | Permissões |
-|------|-----------|
-| `OWNER` | Acessa tudo: atendimento, métricas, admin, sessão WhatsApp |
-| `MECHANIC` | Acessa apenas fila e chat de atendimento |
+| Role | Acesso |
+|------|--------|
+| `SUPER_ADMIN` | `/master/*` — gerencia todas as empresas |
+| `OWNER` | `/admin/*`, `/dashboard/*`, `/atendimento` |
+| `MECHANIC` | `/atendimento` apenas |
 
-O middleware em `panel/middleware.ts` protege as rotas por role.
+---
+
+## Notas Técnicas
+
+### SSE (tempo real)
+Os clientes SSE são armazenados em memória por processo. Em implantações multi-instância, migrar para Redis Pub/Sub.
+
+### Áudio
+O WhatsApp envia áudios em formato OGG/Opus 16kHz. O Chrome rejeita esse formato diretamente. O proxy `/api/media` converte automaticamente para WebM/Opus 48kHz via `ffmpeg` antes de servir ao browser.
+
+### WAHA Chrome vs NOWEB
+| | Chrome | NOWEB |
+|--|--------|-------|
+| Sync de histórico | ✅ | ❌ |
+| Suporte ARM nativo | ❌ | ✅ |
+| Uso em produção | ✅ obrigatório | ❌ |
