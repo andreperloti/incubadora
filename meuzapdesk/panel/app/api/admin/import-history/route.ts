@@ -14,8 +14,8 @@ export async function POST(req: NextRequest) {
   const businessId = parseInt(user.businessId)
 
   const body = await req.json().catch(() => ({}))
-  const chatsLimit = Math.min(body.chatsLimit ?? 20, 50)
-  const messagesPerChat = Math.min(body.messagesPerChat ?? 20, 300)
+  const chatsLimit = Math.min(body.chatsLimit ?? 25, 25)
+  const messagesPerChat = Math.min(body.messagesPerChat ?? 25, 25)
   // forceFullImport=true ignora o filtro incremental (lastImportedAt)
   // Usado quando o usuário clica manualmente em "Reimportar conversas"
   const forceFullImport: boolean = body.forceFullImport === true

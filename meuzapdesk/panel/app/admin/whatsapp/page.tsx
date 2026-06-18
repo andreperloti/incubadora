@@ -99,12 +99,7 @@ export default function WhatsAppSetupPage() {
       const res = await fetch('/api/admin/import-history', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        // Auto-import usa limite menor (rápido); reimport manual usa limite maior
-        body: JSON.stringify({
-          chatsLimit: forceFullImport ? 50 : 20,
-          messagesPerChat: forceFullImport ? 50 : 30,
-          forceFullImport,
-        }),
+        body: JSON.stringify({ chatsLimit: 25, messagesPerChat: 25, forceFullImport }),
       })
 
       if (!res.ok) {
