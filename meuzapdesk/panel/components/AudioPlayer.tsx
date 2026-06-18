@@ -59,7 +59,12 @@ export function AudioPlayer({ src, seed, isOutgoing, avatarUrl, contactName }: P
     const onEnded = () => { setPlaying(false); setProgress(0); setCurrentTime(0) }
     const onWaiting = () => setLoading(true)
     const onPlaying = () => { setLoading(false); setLoadError(false) }
-    const onError = () => { setLoading(false); setPlaying(false); setLoadError(true) }
+    const onError = () => {
+      const code = audio.error?.code
+      const msg = audio.error?.message
+      console.error('[AudioPlayer] erro ao carregar áudio', { src, code, msg })
+      setLoading(false); setPlaying(false); setLoadError(true)
+    }
 
     audio.addEventListener('loadedmetadata', onLoaded)
     audio.addEventListener('timeupdate', onTime)

@@ -22,8 +22,8 @@ export async function POST(req: NextRequest) {
     return handlePollVote(body)
   }
 
-  // Ignora eventos que não sejam mensagens recebidas
-  if (body.event !== 'message') {
+  // Aceita message (incoming) e message.any (incoming + outgoing do celular)
+  if (body.event !== 'message' && body.event !== 'message.any') {
     return NextResponse.json({ status: 'ignored' })
   }
 
