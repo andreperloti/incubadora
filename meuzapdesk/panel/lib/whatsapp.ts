@@ -349,7 +349,7 @@ export async function createWahaSession(
   webhookUrl: string,
   webhookSecret?: string
 ): Promise<boolean> {
-  const webhookEntry: Record<string, unknown> = { url: webhookUrl, events: ['message', 'message.any', 'poll.vote'] }
+  const webhookEntry: Record<string, unknown> = { url: webhookUrl, events: ['message', 'message.any', 'poll.vote', 'session.status'] }
   if (webhookSecret) {
     webhookEntry.customHeaders = [{ name: 'X-Webhook-Secret', value: webhookSecret }]
   }

@@ -22,6 +22,15 @@ export async function POST(req: NextRequest) {
     return handlePollVote(body)
   }
 
+  // Sessão conectada: resolve conversas abandonadas (sem atividade há mais de 1 dia)
+  if (body.event === 'session.status' && body.payload?.status === 'WORKING') {
+    return handleSessionConnected(body.session)
+      .catch((err: unknown) => {
+        logError('webhook', 'Erro ao limpar conversas na reconexão', { session: body.session, error: String(err) }).catch(() => {})
+        return NextResponse.json({ status: 'ok' })
+      })
+  }
+
   // Aceita message (incoming) e message.any (incoming + outgoing do celular)
   if (body.event !== 'message' && body.event !== 'message.any') {
     return NextResponse.json({ status: 'ignored' })
@@ -148,6 +157,36 @@ export async function POST(req: NextRequest) {
     logError('webhook', 'Erro ao processar mensagem', { phone, sessionName, error: String(err) }, business?.id).catch(() => {})
     return NextResponse.json({ status: 'ok' })
   })
+}
+
+// Ao reconectar o WhatsApp: resolve conversas que estão em_fila mas sem atividade há mais de 1 dia.
+// Isso evita que a fila fique entupida com conversas antigas quando o número é reconectado.
+async function handleSessionConnected(sessionName: string) {
+  const business = await prisma.business.findFirst({ where: { wahaSession: sessionName } })
+  if (!business) return NextResponse.json({ status: 'ok' })
+
+  const cutoff = new Date(Date.now() - 24 * 60 * 60 * 1000) // 24h atrás
+
+  const result = await prisma.conversation.updateMany({
+    where: {
+      businessId: business.id,
+      status: { in: ['in_queue', 'waiting_menu'] },
+      customerWaitingSince: { lt: cutoff },
+      lastCustomerMessageAt: { lt: cutoff },
+    },
+    data: {
+      status: 'resolved',
+      resolvedAt: new Date(),
+      customerWaitingSince: null,
+    },
+  })
+
+  if (result.count > 0) {
+    logInfo('webhook', `Reconexão WhatsApp: ${result.count} conversa(s) abandonada(s) encerrada(s)`, { sessionName, count: result.count }, business.id).catch(() => {})
+    broadcastToBusinessClients(String(business.id), { type: 'session_reconnected', resolvedCount: result.count })
+  }
+
+  return NextResponse.json({ status: 'ok', resolvedStale: result.count })
 }
 
 async function handlePollVote(body: any) {
