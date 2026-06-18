@@ -1353,7 +1353,7 @@ export function AtendimentoClient({
                           {displayName}
                         </p>
                         <span className="text-xs flex-shrink-0 font-medium" style={{ color: hasUnread ? '#25d366' : '#8696a0' }}>
-                          {minutesAgo(conv.customerWaitingSince || conv.lastCustomerMessageAt)}
+                          {minutesAgo(conv.lastCustomerMessageAt)}
                         </span>
                       </div>
                       <div className="flex items-center justify-between gap-1 mt-0.5">

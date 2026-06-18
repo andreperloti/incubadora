@@ -83,7 +83,7 @@ export async function GET() {
       messages: { orderBy: { sentAt: 'desc' }, take: 1 },
       alerts: true,
     },
-    orderBy: { customerWaitingSince: 'asc' },
+    orderBy: { lastCustomerMessageAt: 'desc' },
   })
 
   return NextResponse.json(conversations)
