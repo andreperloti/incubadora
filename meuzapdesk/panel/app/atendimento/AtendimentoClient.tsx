@@ -800,7 +800,7 @@ export function AtendimentoClient({
   const [newConvLoading, setNewConvLoading] = useState(false)
   const [wahaContacts, setWahaContacts] = useState<{ id: string; name: string; phone: string }[]>([])
   const [contactsLoading, setContactsLoading] = useState(false)
-  const loadConversationRef = useRef<((id: number, silent?: boolean) => Promise<void>) | null>(null)
+  const loadConversationRef = useRef<((id: number, silent?: boolean, skipSync?: boolean) => Promise<void>) | null>(null)
   const audioCtxRef = useRef<AudioContext | null>(null)
 
   useEffect(() => {
@@ -851,7 +851,7 @@ export function AtendimentoClient({
     } as NotificationOptions)
   }, [])
 
-  const loadConversation = useCallback(async (id: number, silent = false) => {
+  const loadConversation = useCallback(async (id: number, silent = false, skipSync = false) => {
     if (!silent) setLoadingConv(true)
     try {
       const res = await fetch(`/api/conversations/${id}`)
@@ -861,6 +861,18 @@ export function AtendimentoClient({
       }
     } finally {
       if (!silent) setLoadingConv(false)
+    }
+    // Sync silencioso com o WAHA após carregar do banco.
+    // Recupera mensagens que possam ter sido perdidas (ex: enviadas direto do celular).
+    if (!skipSync) {
+      fetch(`/api/conversations/${id}/sync`, { method: 'POST' })
+        .then((r) => r.ok ? r.json() : null)
+        .then((result) => {
+          if (result?.newCount > 0) {
+            loadConversationRef.current?.(id, true, true)
+          }
+        })
+        .catch(() => {})
     }
   }, [])
 
