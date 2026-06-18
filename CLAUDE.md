@@ -39,7 +39,7 @@ Copy `meuzapdesk/panel/.env.local.example` to `meuzapdesk/panel/.env.local`. Key
 ### Tech stack
 - **Next.js 14 App Router** — Server Components fetch data; Client Components handle interaction
 - **Prisma + PostgreSQL** — ORM with schema at `meuzapdesk/panel/prisma/schema.prisma`
-- **WAHA** (WhatsApp HTTP API, self-hosted) — replaces Meta Cloud API; runs on port 3002 in dev
+- **WAHA** (WhatsApp HTTP API, self-hosted) — replaces Meta Cloud API; runs on port 3002 in dev. **CRITICAL: always use the `chrome` engine (`devlikeapro/waha-plus:chrome`). The `noweb` engine does NOT support message history sync — conversations imported before the session connected are lost. Never switch to noweb.**
 - **Redis** — available but currently used only by SSE (in-memory per process in dev)
 - **NextAuth.js** — JWT strategy; session contains `id`, `role`, `businessId`, `businessName`, `image`
 
