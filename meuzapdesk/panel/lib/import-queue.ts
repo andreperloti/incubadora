@@ -79,7 +79,7 @@ async function processImport(job: Job<ImportJobData>) {
 
     const sessionRes = await fetch(
       `${WAHA_API_URL}/api/sessions/${wahaSession}`,
-      { headers: wahaHeaders() }
+      { headers: wahaHeaders(), signal: AbortSignal.timeout(10_000) }
     ).catch(() => null)
 
     if (sessionRes?.ok) {
@@ -99,16 +99,16 @@ async function processImport(job: Job<ImportJobData>) {
       }
     }
 
-    send({ type: 'status', message: 'Buscando conversas do WhatsApp...' })
+    send({ type: 'status', message: 'Carregando lista de conversas do WhatsApp... (pode levar alguns minutos com muitas conversas)' })
 
     const chatsRes = await fetch(
       `${WAHA_API_URL}/api/${wahaSession}/chats/overview?limit=${chatsLimit}`,
-      { headers: wahaHeaders() }
+      { headers: wahaHeaders(), signal: AbortSignal.timeout(120_000) }
     ).catch(() => null)
 
     const fallbackRes = chatsRes?.ok ? null : await fetch(
       `${WAHA_API_URL}/api/${wahaSession}/chats?limit=${chatsLimit}`,
-      { headers: wahaHeaders() }
+      { headers: wahaHeaders(), signal: AbortSignal.timeout(60_000) }
     ).catch(() => null)
 
     const activeRes = chatsRes?.ok ? chatsRes : fallbackRes
@@ -172,7 +172,8 @@ async function processImport(job: Job<ImportJobData>) {
       ).catch(() => null)
 
       const overviewLastMsgTs: number | undefined = (chat.lastMessage as any)?.timestamp
-      const fallbackLastMsgAt = overviewLastMsgTs ? new Date(overviewLastMsgTs * 1000) : new Date()
+      // Fallback new Date(0) para não criar "data falsa" que empurra a conversa ao topo
+      const fallbackLastMsgAt = overviewLastMsgTs ? new Date(overviewLastMsgTs * 1000) : new Date(0)
 
       let textMessages: any[] = []
       if (msgsRes?.ok) {

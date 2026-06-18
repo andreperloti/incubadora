@@ -62,6 +62,7 @@ export default function WhatsAppSetupPage() {
   const [importResult, setImportResult] = useState<{ conversations: number; messages: number; elapsed: string } | null>(null)
   const [importError, setImportError] = useState('')
   const importStartRef = useRef<number | null>(null)
+  const [liveElapsed, setLiveElapsed] = useState<string>('')
   const [qrCountdown, setQrCountdown] = useState(15)
   const [connecting, setConnecting] = useState(false)
   const importTriggeredRef = useRef(false)
@@ -98,7 +99,12 @@ export default function WhatsAppSetupPage() {
       const res = await fetch('/api/admin/import-history', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ chatsLimit: 50, messagesPerChat: 50, forceFullImport }),
+        // Auto-import usa limite menor (rápido); reimport manual usa limite maior
+        body: JSON.stringify({
+          chatsLimit: forceFullImport ? 50 : 20,
+          messagesPerChat: forceFullImport ? 50 : 30,
+          forceFullImport,
+        }),
       })
 
       if (!res.ok) {
@@ -195,6 +201,26 @@ export default function WhatsAppSetupPage() {
       clearInterval(countdownInterval)
     }
   }, [info?.status, fetchQr])
+
+  // Timer ao vivo durante importação
+  useEffect(() => {
+    if (!importStatus && !importProgress) {
+      setLiveElapsed('')
+      return
+    }
+    const tick = () => {
+      if (!importStartRef.current) return
+      const ms = Date.now() - importStartRef.current
+      setLiveElapsed(
+        ms >= 60000
+          ? `${Math.floor(ms / 60000)}m ${Math.round((ms % 60000) / 1000)}s`
+          : `${(ms / 1000).toFixed(0)}s`
+      )
+    }
+    tick()
+    const t = setInterval(tick, 1000)
+    return () => clearInterval(t)
+  }, [!!importStatus || !!importProgress])
 
   // Detecta transição para WORKING → mostra "Conectando" e dispara import
   useEffect(() => {
@@ -382,11 +408,14 @@ export default function WhatsAppSetupPage() {
             <div className="mb-4">
               <div className="flex items-center gap-2 mb-2">
                 <Spinner size={14} color="#53bdeb" />
-                <p className="text-xs font-semibold" style={{ color: '#e9edef' }}>{importStatus}</p>
-                <span className="text-xs font-mono ml-auto" style={{ color: '#53bdeb' }}>
-                  {importProgress
-                    ? `${Math.round((importProgress.current / importProgress.total) * 100)}%`
-                    : '0%'}
+                <p className="text-xs font-semibold flex-1" style={{ color: '#e9edef' }}>{importStatus}</p>
+                <span className="text-xs font-mono ml-auto" style={{ color: '#8696a0' }}>
+                  {liveElapsed && <span style={{ marginRight: 6 }}>{liveElapsed}</span>}
+                  <span style={{ color: '#53bdeb' }}>
+                    {importProgress
+                      ? `${Math.round((importProgress.current / importProgress.total) * 100)}%`
+                      : '0%'}
+                  </span>
                 </span>
               </div>
               <div className="w-full rounded-full h-2" style={{ background: '#2a3942' }}>
@@ -411,6 +440,12 @@ export default function WhatsAppSetupPage() {
                   {importProgress.chatName}
                 </p>
               )}
+              <p className="text-xs mt-3" style={{ color: '#8696a0' }}>
+                Importando em background —{' '}
+                <a href="/atendimento" className="underline" style={{ color: '#53bdeb' }}>
+                  ir para o atendimento agora →
+                </a>
+              </p>
             </div>
           )}
 
