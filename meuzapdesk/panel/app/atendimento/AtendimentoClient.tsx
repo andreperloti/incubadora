@@ -745,6 +745,7 @@ export function AtendimentoClient({
   const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [activeFilter, setActiveFilter] = useState<number | null>(null)
   const activeIdRef = useRef<number | null>(null)
+  const sseActiveRef = useRef<boolean>(false)
 
   // Nova conversa
   const [showNewConv, setShowNewConv] = useState(false)
@@ -825,24 +826,23 @@ export function AtendimentoClient({
     }
   }, [selectedId, loadConversation])
 
-  // Polling da conversa ativa a cada 3s — garante atualização em tempo real
-  // independente do SSE funcionar ou não
+  // Polling de fallback a cada 30s — só dispara quando SSE estiver offline
   useEffect(() => {
     if (selectedId === null) return
     const interval = setInterval(async () => {
+      if (sseActiveRef.current) return
       try {
         const res = await fetch(`/api/conversations/${selectedId}`)
         if (res.ok) {
           const data = await res.json()
           setActiveConv((prev) => {
-            // Só atualiza se o número de mensagens mudou ou status mudou
             if (!prev) return data
             if (prev.messages.length === data.messages.length && prev.status === data.status) return prev
             return data
           })
         }
       } catch {}
-    }, 3000)
+    }, 30000)
     return () => clearInterval(interval)
   }, [selectedId])
 
@@ -934,6 +934,7 @@ export function AtendimentoClient({
       es = new EventSource('/api/sse')
 
       es.onopen = () => {
+        sseActiveRef.current = true
         // Ao reconectar, busca mensagens perdidas durante a desconexão
         if (reconnecting && activeIdRef.current !== null) {
           loadConversationRef.current?.(activeIdRef.current)
@@ -1009,6 +1010,7 @@ export function AtendimentoClient({
       }
 
       es.onerror = () => {
+        sseActiveRef.current = false
         es.close()
         reconnecting = true
         if (!closed) {

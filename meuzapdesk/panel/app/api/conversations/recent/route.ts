@@ -20,43 +20,33 @@ export async function GET() {
     alerts: true,
   }
 
+  // Busca telefones ativos para exclusão via SQL (evita carregar 100 resolvidas só pra filtrar)
   const active = await prisma.conversation.findMany({
     where: { businessId, status: { in: ['in_queue', 'in_progress', 'waiting_menu'] } },
-    select: { customerPhone: true, customerName: true },
+    select: { customerPhone: true },
   })
 
-  const activeNormalized = new Set<string>()
-  for (const c of active) {
-    activeNormalized.add(normalizePhone(c.customerPhone))
-    if (c.customerName) {
-      const n = normalizePhone(c.customerName)
-      if (n.length >= 10) activeNormalized.add(n)
-    }
-  }
+  const activePhones = active.map((c) => c.customerPhone)
 
+  // Exclui diretamente no banco conversas cujo telefone está ativo
+  // Carrega apenas 30 candidatas (precisamos de 20 únicas após dedup de número)
   const recentRaw = await prisma.conversation.findMany({
     where: {
       businessId,
       status: 'resolved',
+      customerPhone: activePhones.length > 0 ? { notIn: activePhones } : undefined,
     },
     include,
     orderBy: { lastCustomerMessageAt: 'desc' },
-    take: 100,
+    take: 30,
   })
 
+  // Dedup em memória apenas para remover variações do mesmo número dentro dos resultados
   const seenNormalized = new Set<string>()
   const recent = recentRaw.filter((c) => {
     const phoneNorm = normalizePhone(c.customerPhone)
-    const nameNorm = c.customerName ? normalizePhone(c.customerName) : null
-
-    if (activeNormalized.has(phoneNorm)) return false
-    if (nameNorm && nameNorm.length >= 10 && activeNormalized.has(nameNorm)) return false
-
     if (seenNormalized.has(phoneNorm)) return false
-    if (nameNorm && nameNorm.length >= 10 && seenNormalized.has(nameNorm)) return false
-
     seenNormalized.add(phoneNorm)
-    if (nameNorm && nameNorm.length >= 10) seenNormalized.add(nameNorm)
     return true
   }).slice(0, 20)
 

@@ -245,15 +245,16 @@ async function mergeDuplicateConversations(businessId: number, phones: string[],
   }
 }
 
-function saveBotMessage(conversationId: number, content: string, businessId: number, waMessageId?: string | null) {
-  prisma.message.create({
-    data: { conversationId, direction: 'out', content, senderUserId: null, waMessageId: waMessageId ?? null },
-    include: { senderUser: { select: { id: true, name: true } } },
-  })
-  .then((msg) => {
+async function saveBotMessage(conversationId: number, content: string, businessId: number, waMessageId?: string | null): Promise<void> {
+  try {
+    const msg = await prisma.message.create({
+      data: { conversationId, direction: 'out', content, senderUserId: null, waMessageId: waMessageId ?? null },
+      include: { senderUser: { select: { id: true, name: true } } },
+    })
     broadcastToBusinessClients(String(businessId), { type: 'new_message', conversationId, message: msg })
-  })
-  .catch((err) => logError('webhook', 'Erro ao salvar mensagem do bot', { conversationId, error: String(err) }).catch(() => {}))
+  } catch (err) {
+    logError('webhook', 'Erro ao salvar mensagem do bot', { conversationId, error: String(err) }).catch(() => {})
+  }
 }
 
 async function handleOutgoingFromPhone({
@@ -538,29 +539,30 @@ async function handleMessage({
 
   // ── 1. Salva a mensagem (idempotente)
   let savedMessage: any
-  // Normaliza a URL de mídia para sempre apontar ao WAHA (independente do host na URL original)
-  // Ex: http://host.docker.internal:3000/api/files/... ou http://localhost:3000/api/files/...
-  //     → http://localhost:3002/api/files/...
   const wahaApiUrl = (process.env.WAHA_API_URL || 'http://localhost:3002').replace(/\/$/, '')
   const resolvedMediaUrl = mediaUrl
     ? mediaUrl.replace(/^https?:\/\/[^/]+/, wahaApiUrl)
     : null
 
+  // Pré-checagem rápida antes de tentar INSERT (evita P2002 no caso comum)
   if (waMessageId) {
-    const dup = await prisma.message.findFirst({
-      where: { waMessageId },
-      include: { senderUser: { select: { id: true, name: true } } },
-    })
+    const dup = await prisma.message.findFirst({ where: { waMessageId } })
     if (dup) return NextResponse.json({ status: 'ok' })
+  }
+
+  try {
     savedMessage = await prisma.message.create({
-      data: { conversationId: conversation.id, direction: 'in', content: text, waMessageId, sentAt: waTimestamp, mediaUrl: resolvedMediaUrl, mediaType },
+      data: {
+        conversationId: conversation.id, direction: 'in', content: text,
+        ...(waMessageId ? { waMessageId } : {}),
+        sentAt: waTimestamp, mediaUrl: resolvedMediaUrl, mediaType,
+      },
       include: { senderUser: { select: { id: true, name: true } } },
     })
-  } else {
-    savedMessage = await prisma.message.create({
-      data: { conversationId: conversation.id, direction: 'in', content: text, sentAt: waTimestamp, mediaUrl: resolvedMediaUrl, mediaType },
-      include: { senderUser: { select: { id: true, name: true } } },
-    })
+  } catch (e: any) {
+    // P2002 = unique constraint violation: race condition com webhook duplicado
+    if (e.code === 'P2002' && waMessageId) return NextResponse.json({ status: 'ok' })
+    throw e
   }
 
   broadcastToBusinessClients(String(business.id), {
@@ -573,20 +575,20 @@ async function handleMessage({
   // sejam consolidadas antes de processar ações do bot.
   await mergeDuplicateConversations(business.id, phoneAliases, conversation.id).catch(() => {})
 
-  // ── 2. Executa ação do bot
+  // ── 2. Executa ação do bot (await garante que save + broadcast acontecem antes do retorno)
   switch (botAction) {
     case 'send_menu':
     case 'resend_current': {
       const msg = botMenuMessage!
-      sendWhatsAppMessage({ session: sessionName, to: rawChatId, message: msg })
-        .then((r) => saveBotMessage(conversation.id, msg, business.id, r.messageId ?? undefined))
-        .catch(() => {})
+      const r = await sendWhatsAppMessage({ session: sessionName, to: rawChatId, message: msg })
+        .catch(() => ({ success: false as const, messageId: null }))
+      await saveBotMessage(conversation.id, msg, business.id, r.messageId ?? undefined)
       break
     }
     case 'send_final': {
-      sendWhatsAppMessage({ session: sessionName, to: rawChatId, message: botFinalMessage! })
-        .then(() => saveBotMessage(conversation.id, botFinalMessage!, business.id))
-        .catch(() => {})
+      const r = await sendWhatsAppMessage({ session: sessionName, to: rawChatId, message: botFinalMessage! })
+        .catch(() => ({ success: false as const, messageId: null }))
+      await saveBotMessage(conversation.id, botFinalMessage!, business.id, r.messageId ?? undefined)
       break
     }
   }

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
-import { authOptions } from '@/lib/auth'
+import { authOptions, getSessionBusinessId, getSessionUserId } from '@/lib/auth'
 import { prisma } from '@/lib/db'
 import { sendWhatsAppMessage, buildSignedMessage } from '@/lib/whatsapp'
 import { broadcastToBusinessClients } from '@/lib/sse'
@@ -15,9 +15,11 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Dados inválidos' }, { status: 400 })
   }
 
+  const businessId = getSessionBusinessId(session)
+  if (!businessId) return NextResponse.json({ error: 'Não autorizado' }, { status: 401 })
+  const userId = getSessionUserId(session)
+  if (!userId) return NextResponse.json({ error: 'Não autorizado' }, { status: 401 })
   const user = session.user as any
-  const businessId = parseInt(user.businessId)
-  const userId = parseInt(user.id)
 
   const conversation = await prisma.conversation.findFirst({
     where: { id: conversationId, businessId },

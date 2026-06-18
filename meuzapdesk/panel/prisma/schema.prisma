@@ -69,6 +69,9 @@ model Conversation {
   messages              Message[]
   alerts                ConversationAlert[]
 
+  @@index([businessId, status])
+  @@index([businessId, customerPhone])
+  @@index([customerWaitingSince])
   @@map("conversations")
 }
 
@@ -92,6 +95,8 @@ model Message {
   conversation   Conversation @relation(fields: [conversationId], references: [id])
   senderUser     User?        @relation(fields: [senderUserId], references: [id])
 
+  @@unique([waMessageId])
+  @@index([conversationId, sentAt])
   @@map("messages")
 }
 

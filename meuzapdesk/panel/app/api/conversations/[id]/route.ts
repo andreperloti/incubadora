@@ -36,8 +36,7 @@ export async function GET(
 
   const { business: _b, ...convData } = conversation
 
-  // Zera não lidas imediatamente (não bloqueia na resposta)
-  prisma.conversation.update({
+  await prisma.conversation.update({
     where: { id: conversationId },
     data: { unreadCount: 0 },
   }).catch(() => {})
