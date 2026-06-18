@@ -59,8 +59,9 @@ export default function WhatsAppSetupPage() {
   const [error, setError] = useState('')
   const [importProgress, setImportProgress] = useState<ImportProgress | null>(null)
   const [importStatus, setImportStatus] = useState<string>('')
-  const [importResult, setImportResult] = useState<{ conversations: number; messages: number } | null>(null)
+  const [importResult, setImportResult] = useState<{ conversations: number; messages: number; elapsed: string } | null>(null)
   const [importError, setImportError] = useState('')
+  const importStartRef = useRef<number | null>(null)
   const [qrCountdown, setQrCountdown] = useState(15)
   const [connecting, setConnecting] = useState(false)
   const importTriggeredRef = useRef(false)
@@ -90,6 +91,7 @@ export default function WhatsAppSetupPage() {
     setImportResult(null)
     setImportError('')
     setImportStatus('Iniciando importação...')
+    importStartRef.current = Date.now()
 
     try {
       // Enfileira o job em background
@@ -129,13 +131,19 @@ export default function WhatsAppSetupPage() {
               setImportProgress({ current: data.current, total: data.total, chatName: data.chatName })
               setImportStatus(`Importando conversa ${data.current}/${data.total}`)
               break
-            case 'done':
-              setImportResult(data.imported)
+            case 'done': {
+              const elapsedMs = importStartRef.current ? Date.now() - importStartRef.current : 0
+              const elapsedSec = (elapsedMs / 1000).toFixed(1)
+              const elapsed = elapsedMs >= 60000
+                ? `${Math.floor(elapsedMs / 60000)}m ${Math.round((elapsedMs % 60000) / 1000)}s`
+                : `${elapsedSec}s`
+              setImportResult({ ...data.imported, elapsed })
               setImportProgress(null)
               setImportStatus('')
               eventSource.close()
               importTriggeredRef.current = false
               break
+            }
             case 'error':
               setImportError(data.message)
               setImportProgress(null)
@@ -375,34 +383,41 @@ export default function WhatsAppSetupPage() {
               <div className="flex items-center gap-2 mb-2">
                 <Spinner size={14} color="#53bdeb" />
                 <p className="text-xs font-semibold" style={{ color: '#e9edef' }}>{importStatus}</p>
-                {importProgress && (
-                  <span className="text-xs font-mono ml-auto" style={{ color: '#53bdeb' }}>
-                    {importProgress.current}/{importProgress.total}
-                  </span>
+                <span className="text-xs font-mono ml-auto" style={{ color: '#53bdeb' }}>
+                  {importProgress
+                    ? `${Math.round((importProgress.current / importProgress.total) * 100)}%`
+                    : '0%'}
+                </span>
+              </div>
+              <div className="w-full rounded-full h-2" style={{ background: '#2a3942' }}>
+                {importProgress ? (
+                  <div
+                    className="h-2 rounded-full transition-all duration-500"
+                    style={{
+                      width: `${(importProgress.current / importProgress.total) * 100}%`,
+                      background: '#00a884',
+                    }}
+                  />
+                ) : (
+                  // Indeterminate enquanto não temos contagem
+                  <div
+                    className="h-2 rounded-full animate-pulse"
+                    style={{ width: '15%', background: '#00a884' }}
+                  />
                 )}
               </div>
               {importProgress && (
-                <>
-                  <div className="w-full rounded-full h-2" style={{ background: '#2a3942' }}>
-                    <div
-                      className="h-2 rounded-full transition-all duration-500"
-                      style={{
-                        width: `${(importProgress.current / importProgress.total) * 100}%`,
-                        background: '#00a884',
-                      }}
-                    />
-                  </div>
-                  <p className="text-xs mt-2 truncate" style={{ color: '#8696a0' }}>
-                    {importProgress.chatName}
-                  </p>
-                </>
+                <p className="text-xs mt-2 truncate" style={{ color: '#8696a0' }}>
+                  {importProgress.chatName}
+                </p>
               )}
             </div>
           )}
 
           {importResult && (
             <div className="mb-4 px-4 py-3 rounded-lg text-xs" style={{ background: '#064e3b', color: '#34d399' }}>
-              ✓ Importação concluída — <strong>{importResult.conversations}</strong> novas conversas,{' '}
+              ✓ Importação concluída em <strong>{importResult.elapsed}</strong> —{' '}
+              <strong>{importResult.conversations}</strong> novas conversas,{' '}
               <strong>{importResult.messages}</strong> mensagens importadas.
             </div>
           )}
