@@ -207,9 +207,8 @@ async function handlePollVote(body: any) {
   // Envia auto-reply
   const reply = buildOptionAutoReply(optionNumber)
   if (reply) {
-    sendWhatsAppMessage({ session: sessionName, to: rawChatId, message: reply })
-      .then(() => saveBotMessage(conversation.id, reply, business.id))
-      .catch(() => {})
+    const r = await sendWhatsAppMessage({ session: sessionName, to: rawChatId, message: reply }).catch(() => null)
+    if (r?.success) await saveBotMessage(conversation.id, reply, business.id)
   }
 
   return NextResponse.json({ status: 'ok' })

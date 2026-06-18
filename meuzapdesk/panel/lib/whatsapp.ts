@@ -141,6 +141,7 @@ export async function sendMenuButtons(
       method: 'POST',
       headers: wahaHeaders(),
       body: JSON.stringify({ session, chatId, ...menu }),
+      signal: AbortSignal.timeout(5000),
     })
     if (res.ok) {
       const data = await res.json()
@@ -188,6 +189,7 @@ export async function sendMenuPoll(
       method: 'POST',
       headers: wahaHeaders(),
       body: JSON.stringify({ session, chatId, ...body }),
+      signal: AbortSignal.timeout(5000),
     })
     if (res.ok) {
       const data = await res.json()
@@ -250,6 +252,7 @@ export async function sendWhatsAppVoice({
       method: 'POST',
       headers: wahaHeaders(),
       body,
+      signal: AbortSignal.timeout(10000),
     })
 
   try {
@@ -297,6 +300,7 @@ export async function sendWhatsAppFile({
         file: { url: fileUrl, mimetype, filename },
         caption: '',
       }),
+      signal: AbortSignal.timeout(10000),
     })
 
     const data = await res.json()
@@ -491,7 +495,7 @@ export async function getWahaContactName(
     const contactId = toChatId(phone)
     const res = await fetch(
       `${WAHA_API_URL}/api/contacts?contactId=${encodeURIComponent(contactId)}&session=${encodeURIComponent(session)}`,
-      { headers: wahaHeaders() }
+      { headers: wahaHeaders(), signal: AbortSignal.timeout(5000) }
     )
     if (!res.ok) return null
     const data = await res.json()
@@ -537,7 +541,7 @@ export async function getWahaMessageMedia(
   try {
     const res = await fetch(
       `${WAHA_API_URL}/api/${session}/chats/${encodeURIComponent(chatId)}/messages?limit=20&downloadMedia=true`,
-      { headers: wahaHeaders() }
+      { headers: wahaHeaders(), signal: AbortSignal.timeout(10000) }
     )
     if (!res.ok) return null
     const msgs: any[] = await res.json()
