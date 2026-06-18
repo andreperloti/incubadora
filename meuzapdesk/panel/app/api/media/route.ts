@@ -25,6 +25,8 @@ function convertOggToWebm(inputBuffer: ArrayBuffer): Buffer | null {
       '-c:a', 'libopus',
       '-ar', '48000',
       '-f', 'webm',
+      '-cluster_size_limit', '2M',
+      '-cues_to_front', 'yes',
       outPath,
     ], { timeout: 10_000, stdio: 'ignore' })
     return readFileSync(outPath)
