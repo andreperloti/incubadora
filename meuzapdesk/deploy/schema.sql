@@ -106,6 +106,28 @@ CREATE TABLE "conversation_alerts" (
     CONSTRAINT "conversation_alerts_conversation_id_fkey" FOREIGN KEY ("conversation_id") REFERENCES "conversations"("id") ON DELETE RESTRICT ON UPDATE CASCADE
 );
 
+-- System logs
+CREATE TABLE "system_logs" (
+    "id"          SERIAL PRIMARY KEY,
+    "level"       VARCHAR(10)  NOT NULL,
+    "context"     VARCHAR(100) NOT NULL,
+    "message"     TEXT         NOT NULL,
+    "details"     JSONB,
+    "business_id" INTEGER,
+    "created_at"  TIMESTAMPTZ  NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX "system_logs_created_at_idx" ON system_logs(created_at DESC);
+CREATE INDEX "system_logs_level_idx"      ON system_logs(level);
+CREATE INDEX "system_logs_business_id_idx" ON system_logs(business_id);
+
+-- Performance indexes
+CREATE INDEX "conversations_business_status_idx"  ON conversations(business_id, status);
+CREATE INDEX "conversations_business_phone_idx"   ON conversations(business_id, customer_phone);
+CREATE INDEX "conversations_waiting_since_idx"    ON conversations(customer_waiting_since);
+CREATE INDEX "messages_conv_sent_idx"             ON messages(conversation_id, sent_at);
+CREATE UNIQUE INDEX "messages_wa_message_id_key"  ON messages(wa_message_id) WHERE wa_message_id IS NOT NULL;
+
 -- Prisma migration table (marca como aplicada para o CLI não reclamar)
 CREATE TABLE "_prisma_migrations" (
     "id"                    VARCHAR(36) PRIMARY KEY,
