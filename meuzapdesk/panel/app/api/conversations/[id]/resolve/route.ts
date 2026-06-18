@@ -1,13 +1,14 @@
 import { NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
-import { authOptions } from '@/lib/auth'
+import { authOptions, getSessionBusinessId } from '@/lib/auth'
 import { prisma } from '@/lib/db'
 
 export async function POST(_req: Request, { params }: { params: { id: string } }) {
   const session = await getServerSession(authOptions)
   if (!session) return NextResponse.json({ error: 'Não autorizado' }, { status: 401 })
 
-  const businessId = parseInt((session.user as any).businessId)
+  const businessId = getSessionBusinessId(session)
+  if (!businessId) return NextResponse.json({ error: 'Não autorizado' }, { status: 401 })
   const conversationId = parseInt(params.id)
 
   const conv = await prisma.conversation.findFirst({

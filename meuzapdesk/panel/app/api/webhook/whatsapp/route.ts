@@ -9,8 +9,8 @@ import { logError, logInfo } from '@/lib/logger'
 
 
 export async function POST(req: NextRequest) {
-  // Valida o secret na query string
-  const secret = req.nextUrl.searchParams.get('secret') ?? ''
+  // Aceita secret no header X-Webhook-Secret (preferido) ou query string (legado)
+  const secret = req.headers.get('x-webhook-secret') ?? req.nextUrl.searchParams.get('secret') ?? ''
   if (!verifyWebhookSecret(secret)) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
@@ -569,10 +569,9 @@ async function handleMessage({
     message: savedMessage,
   })
 
-  // ── Post-save dedup: cobre race conditions onde múltiplas requisições simultâneas
-  // criaram conversas duplicadas antes de qualquer delas ter commitado a sua.
-  // Roda de forma assíncrona para não bloquear a resposta ao WAHA.
-  mergeDuplicateConversations(business.id, phoneAliases, conversation.id).catch(() => {})
+  // Post-save dedup: sincronizado para garantir que duplicatas criadas por race condition
+  // sejam consolidadas antes de processar ações do bot.
+  await mergeDuplicateConversations(business.id, phoneAliases, conversation.id).catch(() => {})
 
   // ── 2. Executa ação do bot
   switch (botAction) {

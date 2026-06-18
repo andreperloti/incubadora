@@ -1,6 +1,6 @@
 import { getServerSession } from 'next-auth'
 import { NextRequest, NextResponse } from 'next/server'
-import { authOptions } from '@/lib/auth'
+import { authOptions, getSessionBusinessId } from '@/lib/auth'
 import { prisma } from '@/lib/db'
 import {
   getWahaSession,
@@ -22,7 +22,8 @@ export async function GET() {
   const session = await requireOwner()
   if (!session) return NextResponse.json({ error: 'Acesso negado' }, { status: 403 })
 
-  const businessId = parseInt((session.user as any).businessId)
+  const businessId = getSessionBusinessId(session)
+  if (!businessId) return NextResponse.json({ error: 'Business não encontrado' }, { status: 404 })
   const business = await prisma.business.findUnique({ where: { id: businessId } })
   if (!business) return NextResponse.json({ error: 'Business não encontrado' }, { status: 404 })
 
@@ -40,7 +41,8 @@ export async function POST(req: NextRequest) {
   const session = await requireOwner()
   if (!session) return NextResponse.json({ error: 'Acesso negado' }, { status: 403 })
 
-  const businessId = parseInt((session.user as any).businessId)
+  const businessId = getSessionBusinessId(session)
+  if (!businessId) return NextResponse.json({ error: 'Business não encontrado' }, { status: 404 })
   const business = await prisma.business.findUnique({ where: { id: businessId } })
   if (!business) return NextResponse.json({ error: 'Business não encontrado' }, { status: 404 })
 
@@ -51,10 +53,10 @@ export async function POST(req: NextRequest) {
   // em Docker e precisa de host.docker.internal para alcançar o Next.js no host)
   const webhookSecret = process.env.WAHA_WEBHOOK_SECRET || ''
   const panelUrl = process.env.WAHA_WEBHOOK_BASE_URL || process.env.NEXTAUTH_URL || 'http://localhost:3000'
-  const webhookUrl = `${panelUrl}/api/webhook/whatsapp?secret=${webhookSecret}`
+  const webhookUrl = `${panelUrl}/api/webhook/whatsapp`
 
   if (action === 'start') {
-    await createWahaSession(sessionName, webhookUrl)
+    await createWahaSession(sessionName, webhookUrl, webhookSecret)
     const ok = await startWahaSession(sessionName)
     if (ok) {
       logInfo('waha', `Sessão iniciada`, { sessionName }, businessId).catch(() => {})

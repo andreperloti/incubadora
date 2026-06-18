@@ -1,6 +1,6 @@
 import { getServerSession } from 'next-auth'
 import { NextResponse } from 'next/server'
-import { authOptions } from '@/lib/auth'
+import { authOptions, getSessionBusinessId } from '@/lib/auth'
 import { prisma } from '@/lib/db'
 import { getWahaQrCode } from '@/lib/whatsapp'
 
@@ -13,7 +13,8 @@ export async function GET() {
     return NextResponse.json({ error: 'Acesso negado' }, { status: 403 })
   }
 
-  const businessId = parseInt((session.user as any).businessId)
+  const businessId = getSessionBusinessId(session)
+  if (!businessId) return NextResponse.json({ error: 'Business não encontrado' }, { status: 404 })
   const business = await prisma.business.findUnique({ where: { id: businessId } })
   if (!business) return NextResponse.json({ error: 'Business não encontrado' }, { status: 404 })
 

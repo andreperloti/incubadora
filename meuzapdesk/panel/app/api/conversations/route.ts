@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
-import { authOptions } from '@/lib/auth'
+import { authOptions, getSessionBusinessId } from '@/lib/auth'
 import { prisma } from '@/lib/db'
 import { broadcastToBusinessClients } from '@/lib/sse'
 
@@ -15,9 +15,9 @@ export async function POST(req: NextRequest) {
   const session = await getServerSession(authOptions)
   if (!session) return NextResponse.json({ error: 'Não autorizado' }, { status: 401 })
 
-  const user = session.user as any
-  const businessId = parseInt(user.businessId)
-  const userId = parseInt(user.id)
+  const businessId = getSessionBusinessId(session)
+  if (!businessId) return NextResponse.json({ error: 'Não autorizado' }, { status: 401 })
+  const userId = parseInt((session.user as any).id)
 
   const body = await req.json()
   const rawPhone: string = body.phone ?? ''
@@ -70,7 +70,8 @@ export async function GET() {
   const session = await getServerSession(authOptions)
   if (!session) return NextResponse.json({ error: 'Não autorizado' }, { status: 401 })
 
-  const businessId = parseInt((session.user as any).businessId)
+  const businessId = getSessionBusinessId(session)
+  if (!businessId) return NextResponse.json({ error: 'Não autorizado' }, { status: 401 })
 
   const conversations = await prisma.conversation.findMany({
     where: {

@@ -1,7 +1,30 @@
-import type { NextAuthOptions } from 'next-auth'
+import type { NextAuthOptions, Session } from 'next-auth'
 import CredentialsProvider from 'next-auth/providers/credentials'
 import bcrypt from 'bcryptjs'
 import { prisma } from '@/lib/db'
+
+// Extrai e valida businessId da sessão com segurança.
+// Retorna null para SUPER_ADMIN (businessId = null) ou sessão inválida.
+export function getSessionBusinessId(session: Session | null): number | null {
+  if (!session?.user) return null
+  const raw = (session.user as any).businessId
+  if (!raw) return null
+  const id = parseInt(raw, 10)
+  return isNaN(id) ? null : id
+}
+
+export function getSessionRole(session: Session | null): string | null {
+  if (!session?.user) return null
+  return (session.user as any).role ?? null
+}
+
+export function getSessionUserId(session: Session | null): number | null {
+  if (!session?.user) return null
+  const raw = (session.user as any).id
+  if (!raw) return null
+  const id = parseInt(raw, 10)
+  return isNaN(id) ? null : id
+}
 
 
 export const authOptions: NextAuthOptions = {

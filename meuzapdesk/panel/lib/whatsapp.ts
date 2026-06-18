@@ -4,6 +4,27 @@
 const WAHA_API_URL = process.env.WAHA_API_URL || 'http://localhost:3002'
 const WAHA_API_KEY = process.env.WAHA_API_KEY || ''
 
+// Retry com backoff exponencial para chamadas críticas ao WAHA.
+// maxAttempts=3: tenta 1x imediatamente + 2x com backoff (1s, 2s).
+async function withRetry<T>(
+  fn: () => Promise<T>,
+  maxAttempts = 3,
+  baseDelayMs = 1000
+): Promise<T> {
+  let lastError: unknown
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    try {
+      return await fn()
+    } catch (err) {
+      lastError = err
+      if (attempt < maxAttempts - 1) {
+        await new Promise((r) => setTimeout(r, baseDelayMs * Math.pow(2, attempt)))
+      }
+    }
+  }
+  throw lastError
+}
+
 function wahaHeaders() {
   return {
     'Content-Type': 'application/json',
@@ -63,15 +84,17 @@ export async function sendWhatsAppMessage({
   message: string
 }): Promise<SendMessageResult> {
   try {
-    const res = await fetch(`${WAHA_API_URL}/api/sendText`, {
-      method: 'POST',
-      headers: wahaHeaders(),
-      body: JSON.stringify({
-        session,
-        chatId: toChatId(to),
-        text: message,
-      }),
-    })
+    const res = await withRetry(() =>
+      fetch(`${WAHA_API_URL}/api/sendText`, {
+        method: 'POST',
+        headers: wahaHeaders(),
+        body: JSON.stringify({
+          session,
+          chatId: toChatId(to),
+          text: message,
+        }),
+      })
+    )
 
     const data = await res.json()
 
@@ -319,10 +342,15 @@ export async function getWahaSession(session: string): Promise<WahaSession | nul
 
 export async function createWahaSession(
   session: string,
-  webhookUrl: string
+  webhookUrl: string,
+  webhookSecret?: string
 ): Promise<boolean> {
+  const webhookEntry: Record<string, unknown> = { url: webhookUrl, events: ['message', 'poll.vote'] }
+  if (webhookSecret) {
+    webhookEntry.customHeaders = [{ name: 'X-Webhook-Secret', value: webhookSecret }]
+  }
   const webhookConfig = {
-    webhooks: [{ url: webhookUrl, events: ['message', 'poll.vote'] }],
+    webhooks: [webhookEntry],
   }
 
   try {

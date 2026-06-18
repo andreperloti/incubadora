@@ -1,6 +1,6 @@
 import { NextRequest } from 'next/server'
 import { getServerSession } from 'next-auth'
-import { authOptions } from '@/lib/auth'
+import { authOptions, getSessionBusinessId } from '@/lib/auth'
 import { createRedisSubscriber, businessChannel } from '@/lib/redis'
 
 export const dynamic = 'force-dynamic'
@@ -11,8 +11,9 @@ export async function GET(req: NextRequest) {
     return new Response('Não autorizado', { status: 401 })
   }
 
-  const businessId = String((session.user as any).businessId)
-  const channel = businessChannel(businessId)
+  const businessId = getSessionBusinessId(session)
+  if (!businessId) return new Response('Não autorizado', { status: 401 })
+  const channel = businessChannel(String(businessId))
 
   // Cada conexão SSE tem seu próprio subscriber Redis dedicado
   const subscriber = createRedisSubscriber()

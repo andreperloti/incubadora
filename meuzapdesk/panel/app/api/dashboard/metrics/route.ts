@@ -1,6 +1,6 @@
 import { getServerSession } from 'next-auth'
 import { NextResponse } from 'next/server'
-import { authOptions } from '@/lib/auth'
+import { authOptions, getSessionBusinessId } from '@/lib/auth'
 import { prisma } from '@/lib/db'
 
 export const dynamic = 'force-dynamic'
@@ -18,7 +18,8 @@ export async function GET() {
     return NextResponse.json({ error: 'Acesso negado' }, { status: 403 })
   }
 
-  const businessId = parseInt((session.user as any).businessId)
+  const businessId = getSessionBusinessId(session)
+  if (!businessId) return NextResponse.json({ error: 'Acesso negado' }, { status: 403 })
 
   const hoje = new Date()
   hoje.setHours(0, 0, 0, 0)

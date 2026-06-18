@@ -34,16 +34,16 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Conversa não encontrada' }, { status: 404 })
   }
 
-  // Envia via WAHA
+  // Envia via WAHA — só salva no banco se o envio for confirmado
   const waResult = await sendWhatsAppMessage({
     session: conversation.business.wahaSession,
     to: conversation.customerPhone,
     message: content.trim(),
   })
 
-  // Log mas não bloqueia se WAHA falhar (mensagem ainda salva no painel)
   if (!waResult.success) {
     console.error('[bot-send] WAHA falhou:', waResult.error)
+    return NextResponse.json({ error: 'Falha ao enviar mensagem via WhatsApp', detail: waResult.error }, { status: 502 })
   }
 
   const savedMessage = await prisma.message.create({
