@@ -28,6 +28,9 @@ npm --prefix "$SITE_DIR" ci
 echo "==> [3b/6] Regenerando Prisma client..."
 (cd "$PANEL_DIR" && npx prisma generate)
 
+echo "==> [3c/6] Aplicando migrations SQL..."
+bash "$REPO_DIR/meuzapdesk/deploy/migrate.sh"
+
 echo "==> [4/6] Build do panel..."
 npm --prefix "$PANEL_DIR" run build
 
