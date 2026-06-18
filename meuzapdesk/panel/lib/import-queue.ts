@@ -258,11 +258,14 @@ async function processImport(job: Job<ImportJobData>) {
       })))
     }
 
-    // Salva timestamp do último import bem-sucedido
-    await prisma.business.update({
-      where: { id: businessId },
-      data: { lastImportedAt: new Date() },
-    })
+    // Só atualiza lastImportedAt se algo foi realmente importado
+    // (evita que um import vazio bloqueie o próximo import incremental)
+    if (importedMessages > 0 || importedConversations > 0) {
+      await prisma.business.update({
+        where: { id: businessId },
+        data: { lastImportedAt: new Date() },
+      })
+    }
 
     logInfo('import', `Importação concluída`, {
       businessId, wahaSession,

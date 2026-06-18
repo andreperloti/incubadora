@@ -84,7 +84,7 @@ export default function WhatsAppSetupPage() {
     }
   }, [])
 
-  const startImport = useCallback(async () => {
+  const startImport = useCallback(async (forceFullImport = false) => {
     if (importTriggeredRef.current) return
     importTriggeredRef.current = true
     setImportProgress(null)
@@ -98,7 +98,7 @@ export default function WhatsAppSetupPage() {
       const res = await fetch('/api/admin/import-history', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ chatsLimit: 50, messagesPerChat: 50 }),
+        body: JSON.stringify({ chatsLimit: 50, messagesPerChat: 50, forceFullImport }),
       })
 
       if (!res.ok) {
@@ -430,7 +430,7 @@ export default function WhatsAppSetupPage() {
 
           {!isImporting && (
             <button
-              onClick={startImport}
+              onClick={() => startImport(true)}
               className="text-sm font-semibold px-5 py-2 rounded-lg transition"
               style={{ border: '1px solid #00a884', color: '#00a884' }}
             >

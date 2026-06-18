@@ -16,6 +16,9 @@ export async function POST(req: NextRequest) {
   const body = await req.json().catch(() => ({}))
   const chatsLimit = Math.min(body.chatsLimit ?? 20, 50)
   const messagesPerChat = Math.min(body.messagesPerChat ?? 20, 300)
+  // forceFullImport=true ignora o filtro incremental (lastImportedAt)
+  // Usado quando o usuário clica manualmente em "Reimportar conversas"
+  const forceFullImport: boolean = body.forceFullImport === true
 
   const business = await prisma.business.findUnique({ where: { id: businessId } })
   if (!business?.wahaSession) {
@@ -32,7 +35,7 @@ export async function POST(req: NextRequest) {
     wahaSession: business.wahaSession,
     chatsLimit,
     messagesPerChat,
-    sinceDate: business.lastImportedAt?.toISOString(),
+    sinceDate: forceFullImport ? undefined : business.lastImportedAt?.toISOString(),
   })
 
   return new Response(JSON.stringify({ jobId: job.id }), {
