@@ -41,6 +41,7 @@ export function AudioPlayer({ src, seed, isOutgoing, avatarUrl, contactName }: P
   const [duration, setDuration] = useState(0)
   const [currentTime, setCurrentTime] = useState(0)
   const [loading, setLoading] = useState(false)
+  const [loadError, setLoadError] = useState(false)
 
   const bars = generateBars(seed)
   const BAR_COUNT = bars.length
@@ -48,6 +49,7 @@ export function AudioPlayer({ src, seed, isOutgoing, avatarUrl, contactName }: P
   useEffect(() => {
     const audio = audioRef.current
     if (!audio) return
+    setLoadError(false)
 
     const onLoaded = () => setDuration(audio.duration)
     const onTime = () => {
@@ -56,31 +58,38 @@ export function AudioPlayer({ src, seed, isOutgoing, avatarUrl, contactName }: P
     }
     const onEnded = () => { setPlaying(false); setProgress(0); setCurrentTime(0) }
     const onWaiting = () => setLoading(true)
-    const onPlaying = () => setLoading(false)
+    const onPlaying = () => { setLoading(false); setLoadError(false) }
+    const onError = () => { setLoading(false); setPlaying(false); setLoadError(true) }
 
     audio.addEventListener('loadedmetadata', onLoaded)
     audio.addEventListener('timeupdate', onTime)
     audio.addEventListener('ended', onEnded)
     audio.addEventListener('waiting', onWaiting)
     audio.addEventListener('playing', onPlaying)
+    audio.addEventListener('error', onError)
     return () => {
       audio.removeEventListener('loadedmetadata', onLoaded)
       audio.removeEventListener('timeupdate', onTime)
       audio.removeEventListener('ended', onEnded)
       audio.removeEventListener('waiting', onWaiting)
       audio.removeEventListener('playing', onPlaying)
+      audio.removeEventListener('error', onError)
     }
   }, [src])
 
   function togglePlay() {
     const audio = audioRef.current
-    if (!audio) return
+    if (!audio || loadError) return
     if (playing) {
       audio.pause()
       setPlaying(false)
     } else {
-      audio.play()
-      setPlaying(true)
+      setLoading(true)
+      audio.play().then(() => setPlaying(true)).catch(() => {
+        setLoading(false)
+        setPlaying(false)
+        setLoadError(true)
+      })
     }
   }
 
@@ -102,6 +111,15 @@ export function AudioPlayer({ src, seed, isOutgoing, avatarUrl, contactName }: P
   const timeColor = isOutgoing ? 'rgba(255,255,255,0.65)' : '#8696a0'
 
   const displayTime = playing || progress > 0 ? formatDuration(currentTime) : formatDuration(duration)
+
+  if (loadError) {
+    return (
+      <div className="flex items-center gap-2 text-xs" style={{ color: '#8696a0', minWidth: 220 }}>
+        <span>⚠️</span>
+        <span>Áudio indisponível</span>
+      </div>
+    )
+  }
 
   return (
     <div className="flex items-center gap-2.5" style={{ minWidth: 220, maxWidth: 280 }}>

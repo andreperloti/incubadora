@@ -179,7 +179,8 @@ async function processImport(job: Job<ImportJobData>) {
       if (msgsRes?.ok) {
         const msgsData = await msgsRes.json()
         const messages: any[] = Array.isArray(msgsData) ? msgsData : (msgsData.messages ?? [])
-        textMessages = messages.filter((m: any) => m.body && String(m.body).trim())
+        // Inclui mensagens com body OU com mídia (áudio, imagem, arquivo)
+        textMessages = messages.filter((m: any) => (m.body && String(m.body).trim()) || m.hasMedia)
         textMessages.sort((a: any, b: any) => (a.timestamp ?? 0) - (b.timestamp ?? 0))
       }
 
@@ -230,12 +231,23 @@ async function processImport(job: Job<ImportJobData>) {
           .map((msg: any) => {
             const waMessageId = extractId(msg.id)
             if (!waMessageId) return null
+            const mediaUrl: string | null = msg.media?.url ?? null
+            const mediaType: string | null = msg.media?.mimetype ?? null
+            // Body padrão para mensagens de mídia sem texto
+            const content = msg.body && String(msg.body).trim()
+              ? String(msg.body)
+              : mediaType?.startsWith('audio') ? '🎵 Áudio'
+              : mediaType?.startsWith('image') ? '📷 Imagem'
+              : mediaType?.startsWith('video') ? '🎥 Vídeo'
+              : '📎 Arquivo'
             return {
               conversationId: conversation!.id,
               direction: (msg.fromMe ? 'out' : 'in') as 'out' | 'in',
-              content: String(msg.body),
+              content,
               waMessageId,
               sentAt: msg.timestamp ? new Date(msg.timestamp * 1000) : new Date(),
+              mediaUrl,
+              mediaType,
             }
           })
           .filter((m): m is NonNullable<typeof m> => m !== null),
