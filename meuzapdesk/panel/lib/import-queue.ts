@@ -174,23 +174,24 @@ async function processImport(job: Job<ImportJobData>) {
       }
 
       let msgsRes = await fetchMessages(resolvedChatId)
-      // Se @lid ou @c.us falhar com 500, tenta o outro formato
+      // Se @lid ou @c.us falhar, tenta o outro formato
       if (!msgsRes?.ok && resolvedChatId !== chatId) {
         msgsRes = await fetchMessages(chatId)
       }
+
+      // Se WAHA não conseguiu buscar mensagens, pula sem criar conversa.
+      // Isso evita criar conversas duplicadas com @lid quando o WAHA ainda está carregando.
+      if (!msgsRes?.ok) return
 
       const overviewLastMsgTs: number | undefined = (chat.lastMessage as any)?.timestamp
       // Fallback new Date(0) para não criar "data falsa" que empurra a conversa ao topo
       const fallbackLastMsgAt = overviewLastMsgTs ? new Date(overviewLastMsgTs * 1000) : new Date(0)
 
-      let textMessages: any[] = []
-      if (msgsRes?.ok) {
-        const msgsData = await msgsRes.json()
-        const messages: any[] = Array.isArray(msgsData) ? msgsData : (msgsData.messages ?? [])
-        // Inclui mensagens com body OU com mídia (áudio, imagem, arquivo)
-        textMessages = messages.filter((m: any) => (m.body && String(m.body).trim()) || m.hasMedia)
-        textMessages.sort((a: any, b: any) => (a.timestamp ?? 0) - (b.timestamp ?? 0))
-      }
+      const msgsData = await msgsRes.json()
+      const messages: any[] = Array.isArray(msgsData) ? msgsData : (msgsData.messages ?? [])
+      // Inclui mensagens com body OU com mídia (áudio, imagem, arquivo)
+      const textMessages = messages.filter((m: any) => (m.body && String(m.body).trim()) || m.hasMedia)
+      textMessages.sort((a: any, b: any) => (a.timestamp ?? 0) - (b.timestamp ?? 0))
 
       const lastMsgAt = textMessages.length > 0
         ? (textMessages[textMessages.length - 1].timestamp
