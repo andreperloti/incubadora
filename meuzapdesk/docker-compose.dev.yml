@@ -33,7 +33,8 @@ services:
   waha:
     # Chrome engine: suporta sync completo de mensagens (NOWEB não sincroniza histórico)
     # M4/ARM: a imagem Chrome só existe para linux/amd64 — roda via Rosetta
-    image: devlikeapro/waha-plus:chrome
+    # Imagem espelhada em perloti/waha-plus (credenciais devlikeapro expiram)
+    image: perloti/waha-plus:chrome-amd64
     platform: linux/amd64
     restart: unless-stopped
     ports:

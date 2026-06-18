@@ -36,7 +36,8 @@ services:
   waha:
     # Chrome engine: suporta sync completo de mensagens (NOWEB não sincroniza histórico)
     # Servidor GCP é linux/amd64 — imagem Chrome roda nativamente
-    image: devlikeapro/waha-plus:chrome
+    # Imagem espelhada em perloti/waha-plus (credenciais devlikeapro expiram)
+    image: perloti/waha-plus:chrome-amd64
     restart: always
     ports:
       - "127.0.0.1:3100:3000"
