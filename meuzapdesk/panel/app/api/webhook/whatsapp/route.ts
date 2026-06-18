@@ -189,6 +189,7 @@ async function handleSessionConnected(sessionName: string) {
 
   // Reimport automático: recupera mensagens dos últimos 7 dias que possam ter
   // sido perdidas durante a desconexão (ex: mensagens enviadas do celular, falha de webhook).
+  // Delay de 3 minutos para o WAHA terminar de carregar os chats após reconexão.
   const since7d = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString()
   ensureImportWorker()
   importQueue.add('import', {
@@ -197,7 +198,7 @@ async function handleSessionConnected(sessionName: string) {
     chatsLimit: 25,
     messagesPerChat: 50,
     sinceDate: since7d,
-  }).catch(() => {})
+  }, { delay: 3 * 60 * 1000 }).catch(() => {})
 
   logInfo('webhook', 'Reconexão WhatsApp: reimport automático agendado (últimos 7 dias)', { sessionName }, business.id).catch(() => {})
 

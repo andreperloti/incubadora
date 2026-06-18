@@ -166,10 +166,18 @@ async function processImport(job: Job<ImportJobData>) {
       const customerPhone = resolveCustomerPhone(resolvedChatId, chatName)
       const customerName = chatName || customerPhone
 
-      const msgsRes = await fetch(
-        `${WAHA_API_URL}/api/${wahaSession}/chats/${encodeURIComponent(resolvedChatId)}/messages?limit=${messagesPerChat}&downloadMedia=false`,
-        { headers: wahaHeaders(), signal: AbortSignal.timeout(10000) }
-      ).catch(() => null)
+      async function fetchMessages(id: string) {
+        return fetch(
+          `${WAHA_API_URL}/api/${wahaSession}/chats/${encodeURIComponent(id)}/messages?limit=${messagesPerChat}&downloadMedia=false`,
+          { headers: wahaHeaders(), signal: AbortSignal.timeout(10000) }
+        ).catch(() => null)
+      }
+
+      let msgsRes = await fetchMessages(resolvedChatId)
+      // Se @lid ou @c.us falhar com 500, tenta o outro formato
+      if (!msgsRes?.ok && resolvedChatId !== chatId) {
+        msgsRes = await fetchMessages(chatId)
+      }
 
       const overviewLastMsgTs: number | undefined = (chat.lastMessage as any)?.timestamp
       // Fallback new Date(0) para não criar "data falsa" que empurra a conversa ao topo
