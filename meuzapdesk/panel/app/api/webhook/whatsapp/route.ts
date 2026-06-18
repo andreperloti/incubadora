@@ -296,14 +296,17 @@ async function handleOutgoingFromPhone({
   const withoutDdi = basePhone.startsWith('55') ? basePhone.slice(2) : basePhone
   const phoneAliases = Array.from(new Set([normalizedTo, realPhone, withoutDdi, rawTo].filter(Boolean) as string[]))
 
-  const conversation = await prisma.conversation.findFirst({
-    where: {
-      businessId: business.id,
-      customerPhone: { in: phoneAliases },
-      status: { not: 'resolved' },
-    },
+  // Prioriza conversa ativa; se não houver, aceita resolved (ex: conversa importada)
+  let conversation = await prisma.conversation.findFirst({
+    where: { businessId: business.id, customerPhone: { in: phoneAliases }, status: { not: 'resolved' } },
     orderBy: { createdAt: 'desc' },
   })
+  if (!conversation) {
+    conversation = await prisma.conversation.findFirst({
+      where: { businessId: business.id, customerPhone: { in: phoneAliases } },
+      orderBy: { createdAt: 'desc' },
+    })
+  }
 
   if (!conversation) return NextResponse.json({ status: 'ok' })
 
