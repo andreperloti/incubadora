@@ -13,10 +13,8 @@ Marcar com `[x]` ao concluir cada item.
 - [x] **Dedup de waMessageId sem constraint UNIQUE** — `app/api/webhook/whatsapp/route.ts:549`
   O par `findFirst() + create()` não é atômico. Dois webhooks simultâneos com o mesmo `waMessageId` passam pela checagem antes de qualquer um commitar, gerando mensagem duplicada no banco.
   _Fix: `@@unique([waMessageId])` adicionado ao schema + try-catch P2002 no código._
-  ⚠️ **Requer SQL no container para ter efeito em produção:**
-  ```sql
-  CREATE UNIQUE INDEX CONCURRENTLY "messages_wa_message_id_key" ON "messages"("wa_message_id") WHERE "wa_message_id" IS NOT NULL;
-  ```
+  ✅ **Migration criada:** `meuzapdesk/migrations/001_indexes_and_unique.sql`
+  Será aplicada automaticamente no próximo deploy via `deploy/migrate.sh`.
 
 - [x] **parseInt sem validação em messages/route.ts** — `app/api/messages/route.ts:19`
   `parseInt(user.businessId)` e `parseInt(user.id)` sem validação de NaN — os outros endpoints já foram corrigidos com `getSessionBusinessId()`, esse ficou de fora.
@@ -49,13 +47,8 @@ Marcar com `[x]` ao concluir cada item.
 - [x] **Índices faltando no banco** — `prisma/schema.prisma`
   Toda busca de conversa por status ou telefone é full table scan. Com volume alto, webhook e listagem de fila ficam lentos.
   _Fix: adicionados `@@index([businessId, status])`, `@@index([businessId, customerPhone])`, `@@index([customerWaitingSince])` em Conversation e `@@index([conversationId, sentAt])` em Message._
-  ⚠️ **Requer SQL no container para ter efeito em produção:**
-  ```sql
-  CREATE INDEX CONCURRENTLY "conversations_business_status_idx" ON "conversations"("business_id", "status");
-  CREATE INDEX CONCURRENTLY "conversations_business_phone_idx" ON "conversations"("business_id", "customer_phone");
-  CREATE INDEX CONCURRENTLY "conversations_waiting_since_idx" ON "conversations"("customer_waiting_since");
-  CREATE INDEX CONCURRENTLY "messages_conv_sent_idx" ON "messages"("conversation_id", "sent_at");
-  ```
+  ✅ **Migration criada:** `meuzapdesk/migrations/001_indexes_and_unique.sql`
+  Será aplicada automaticamente no próximo deploy via `deploy/migrate.sh`.
 
 - [x] **Polling de 3s + SSE redundante** — `app/atendimento/AtendimentoClient.tsx`
   Com 100 usuários simultâneos → ~33 req/s desnecessárias ao banco. SSE já cobre atualizações em tempo real.
