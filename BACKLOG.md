@@ -28,17 +28,17 @@ Marcar com `[x]` ao concluir cada item.
 
 ## Segurança
 
-- [ ] **SSRF via avatar URL** — `lib/whatsapp.ts:414`
+- [x] **SSRF via avatar URL** — `lib/whatsapp.ts:414`
   O filtro rejeita non-HTTPS, mas `https://192.168.0.1/...` passa. O servidor faz request para IP interno da rede.
-  _Fix: rejeitar IPs privados/localhost após validar HTTPS (`127.`, `10.`, `192.168.`, `172.16-31.`)._
+  _Fix: hostname validado com regex de IPs privados/localhost após checar HTTPS._
 
-- [ ] **execFileSync(ffmpeg) sem sandbox** — `app/api/messages/audio/route.ts`
+- [x] **execFileSync(ffmpeg) sem sandbox** — `app/api/messages/audio/route.ts`
   Executa binário externo com dados do usuário. Vulnerável se ffmpeg tiver exploits conhecidos.
-  _Fix: isolar em Worker thread ou substituir por biblioteca Node pura._
+  _Fix: limite de 25MB no input, timeout de 30s no execFileSync e fix de parseInt._
 
-- [ ] **Endpoint SSE broadcast sem autenticação** — verificar `app/api/sse/`
-  Confirmar se existe endpoint de broadcast aberto. Se existir, qualquer cliente pode injetar eventos SSE para todos os usuários.
-  _Fix: adicionar `verifyInternalSecret()` igual ao `bot-send`._
+- [x] **Endpoint SSE broadcast sem autenticação** — `app/api/sse/broadcast/route.ts`
+  Qualquer cliente podia fazer POST e injetar eventos SSE para todos os usuários.
+  _Fix: autenticação via header `X-Internal-Secret`._
 
 ---
 
@@ -62,14 +62,14 @@ Marcar com `[x]` ao concluir cada item.
 
 ## UX / Runtime
 
-- [ ] **SSE sem reconexão com backoff** — `app/atendimento/AtendimentoClient.tsx`
-  Reconecta sempre após 3s fixos. Em sobrecarga, reconexões constantes agravam o problema.
-  _Fix: backoff exponencial no frontend (3s → 6s → 15s → 30s max)._
+- [x] **SSE sem reconexão com backoff** — `app/atendimento/AtendimentoClient.tsx`
+  Reconectava sempre após 3s fixos. Em sobrecarga, reconexões constantes agravam o problema.
+  _Fix: backoff exponencial (3s → 6s → 12s → 30s max), reset no `onopen`._
 
-- [ ] **Chamadas WAHA sem timeout** — `app/api/conversations/[id]/route.ts:47`
-  `getWahaContactAvatar()` e `getWahaContactPhone()` bloqueiam a resposta indefinidamente se WAHA estiver lento.
-  _Fix: `Promise.race()` com timeout de 5s ou `AbortSignal.timeout(5000)`._
+- [x] **Chamadas WAHA sem timeout** — `lib/whatsapp.ts`
+  `getWahaContactAvatar()` e `getWahaContactPhone()` bloqueavam a resposta se WAHA estivesse lento.
+  _Fix: `AbortSignal.timeout(5000)` nas duas funções._
 
-- [ ] **Business não encontrado retorna 200 silencioso** — `app/api/webhook/whatsapp/route.ts:113`
-  Mensagens de clientes são descartadas sem nenhum alerta se a sessão WAHA não tiver Business associado.
-  _Fix: retornar 422 e logar com nível `error` para alertar operador._
+- [x] **Business não encontrado retorna 200 silencioso** — `app/api/webhook/whatsapp/route.ts:113`
+  Mensagens de clientes eram descartadas sem alerta se a sessão WAHA não tivesse Business associado.
+  _Fix: retorna 422 — visível nos logs do WAHA para alertar operador._
