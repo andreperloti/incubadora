@@ -1,0 +1,29 @@
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Claude Code
+.claude/
+
+# TypeScript build cache
+tsconfig.tsbuildinfo
+**/tsconfig.tsbuildinfo
+
+# Node
+node_modules/
+npm-debug.log*
+
+# Next.js
+**/.next/
+**/out/
+
+# Env files (nunca commitar credenciais)
+.env*.local
+.env
+
+# PM2
+.pm2/
+
+# Logs
+*.log
