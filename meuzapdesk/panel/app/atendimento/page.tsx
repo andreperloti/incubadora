@@ -2,6 +2,7 @@ import { getServerSession } from 'next-auth'
 import { redirect } from 'next/navigation'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/db'
+import { getWahaSession } from '@/lib/whatsapp'
 import { AtendimentoClient } from './AtendimentoClient'
 
 export const dynamic = 'force-dynamic'
@@ -80,12 +81,24 @@ export default async function AtendimentoPage() {
   })
   const menuFilters = rootMenu?.options.map((o) => ({ order: o.order, label: o.label })) ?? []
 
+  // Status da sessão WhatsApp
+  const business = await prisma.business.findUnique({
+    where: { id: businessId },
+    select: { wahaSession: true },
+  })
+  let wahaConnected = false
+  if (business?.wahaSession) {
+    const wahaStatus = await getWahaSession(business.wahaSession)
+    wahaConnected = wahaStatus?.status === 'WORKING'
+  }
+
   return (
     <AtendimentoClient
       conversations={JSON.parse(JSON.stringify(active))}
       recentConversations={JSON.parse(JSON.stringify(recent))}
       menuFilters={menuFilters}
       session={session}
+      wahaConnected={wahaConnected}
     />
   )
 }

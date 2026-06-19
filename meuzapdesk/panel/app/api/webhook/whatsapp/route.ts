@@ -23,13 +23,21 @@ export async function POST(req: NextRequest) {
     return handlePollVote(body)
   }
 
-  // Sessão conectada: resolve conversas abandonadas (sem atividade há mais de 1 dia)
-  if (body.event === 'session.status' && body.payload?.status === 'WORKING') {
-    return handleSessionConnected(body.session)
-      .catch((err: unknown) => {
-        logError('webhook', 'Erro ao limpar conversas na reconexão', { session: body.session, error: String(err) }).catch(() => {})
-        return NextResponse.json({ status: 'ok' })
-      })
+  // Mudança de status da sessão WAHA
+  if (body.event === 'session.status') {
+    if (body.payload?.status === 'WORKING') {
+      return handleSessionConnected(body.session)
+        .catch((err: unknown) => {
+          logError('webhook', 'Erro ao limpar conversas na reconexão', { session: body.session, error: String(err) }).catch(() => {})
+          return NextResponse.json({ status: 'ok' })
+        })
+    }
+    // Qualquer outro status (STOPPED, FAILED, SCAN_QR_CODE…) notifica o painel
+    const biz = await prisma.business.findFirst({ where: { wahaSession: body.session }, select: { id: true } })
+    if (biz) {
+      broadcastToBusinessClients(String(biz.id), { type: 'session_disconnected', sessionStatus: body.payload?.status })
+    }
+    return NextResponse.json({ status: 'ok' })
   }
 
   // Aceita message (incoming) e message.any (incoming + outgoing do celular)

@@ -770,15 +770,18 @@ export function AtendimentoClient({
   recentConversations: initialRecent,
   menuFilters,
   session,
+  wahaConnected: initialWahaConnected,
 }: {
   conversations: ConvSummary[]
   recentConversations: ConvSummary[]
   menuFilters: { order: number; label: string }[]
   session: Session
+  wahaConnected: boolean
 }) {
   const user = session.user as any
   const isOwner = user.role === 'OWNER'
 
+  const [isWahaConnected, setIsWahaConnected] = useState(initialWahaConnected)
   const [conversations, setConversations] = useState<ConvSummary[]>(initial)
   const [recentConversations, setRecentConversations] = useState<ConvSummary[]>(initialRecent)
   const [recentHasMore, setRecentHasMore] = useState(initialRecent.length >= 20)
@@ -1089,6 +1092,16 @@ export function AtendimentoClient({
           if (event.type === 'conversation_update') {
             refreshList()
           }
+
+          if (event.type === 'session_reconnected') {
+            setIsWahaConnected(true)
+            refreshList()
+            refreshRecent()
+          }
+
+          if (event.type === 'session_disconnected') {
+            setIsWahaConnected(false)
+          }
         } catch {}
       }
 
@@ -1109,7 +1122,7 @@ export function AtendimentoClient({
       closed = true
       es?.close()
     }
-  }, [refreshList, playNotificationSound, showBrowserNotification])
+  }, [refreshList, refreshRecent, playNotificationSound, showBrowserNotification])
 
   function handleResolve() {
     setSelectedId(null)
@@ -1169,6 +1182,35 @@ export function AtendimentoClient({
       c.customerPhone.includes(term)
     )
   })
+
+  if (!isWahaConnected) {
+    return (
+      <div className="flex items-center justify-center" style={{ height: '100dvh', background: '#111b21' }}>
+        <div className="text-center px-6 max-w-sm">
+          <div className="text-5xl mb-6">📵</div>
+          <h2 className="text-lg font-semibold mb-2" style={{ color: '#e9edef' }}>
+            WhatsApp desconectado
+          </h2>
+          <p className="text-sm mb-6" style={{ color: '#8696a0' }}>
+            A sessão do WhatsApp está offline. As conversas não podem ser exibidas enquanto o WhatsApp estiver desconectado.
+          </p>
+          {isOwner ? (
+            <a
+              href="/admin/whatsapp"
+              className="inline-block px-5 py-2 rounded-lg text-sm font-medium"
+              style={{ background: '#00a884', color: '#fff' }}
+            >
+              Conectar WhatsApp
+            </a>
+          ) : (
+            <p className="text-sm" style={{ color: '#8696a0' }}>
+              Entre em contato com o administrador para reconectar.
+            </p>
+          )}
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div className="flex overflow-hidden relative" style={{ height: '100dvh', background: '#111b21' }}>
