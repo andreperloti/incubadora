@@ -46,6 +46,7 @@ export async function POST(req: NextRequest) {
         customerName: customerPhone,
         status: 'in_progress',
         assignedUserId: userId,
+        queuedAt: new Date(),
       },
     })
   }

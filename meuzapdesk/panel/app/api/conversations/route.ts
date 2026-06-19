@@ -50,6 +50,7 @@ export async function POST(req: NextRequest) {
       customerName: name || phone,
       status: 'in_progress',
       assignedUserId: userId,
+      queuedAt: new Date(),
     },
     include: {
       assignedUser: { select: { id: true, name: true } },
@@ -83,7 +84,7 @@ export async function GET() {
       messages: { orderBy: { sentAt: 'desc' }, take: 1 },
       alerts: true,
     },
-    orderBy: { lastCustomerMessageAt: 'desc' },
+    orderBy: { queuedAt: 'asc' },
   })
 
   return NextResponse.json(conversations)

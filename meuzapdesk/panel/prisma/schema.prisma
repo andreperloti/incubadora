@@ -60,6 +60,7 @@ model Conversation {
   createdAt             DateTime         @default(now()) @map("created_at")
   lastCustomerMessageAt DateTime?        @map("last_customer_message_at")
   customerWaitingSince  DateTime?        @map("customer_waiting_since")
+  queuedAt              DateTime?        @map("queued_at")
   resolvedAt            DateTime?        @map("resolved_at")
   currentMenuId         Int?             @map("current_menu_id")
   sector                String?          // setor definido pela opção de menu selecionada
@@ -72,6 +73,7 @@ model Conversation {
   @@index([businessId, status])
   @@index([businessId, customerPhone])
   @@index([customerWaitingSince])
+  @@index([queuedAt])
   @@map("conversations")
 }
 

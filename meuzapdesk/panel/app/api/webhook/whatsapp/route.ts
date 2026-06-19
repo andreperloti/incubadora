@@ -510,6 +510,7 @@ async function handleMessage({
         unreadCount: 1,
         lastCustomerMessageAt: waTimestamp,
         customerWaitingSince: waTimestamp,
+        queuedAt: waTimestamp,
         currentMenuId: rootMenu?.id ?? null,
       },
     })
@@ -593,6 +594,8 @@ async function handleMessage({
       resolvedAt: wasResolved ? null : existing!.resolvedAt,
       unreadCount: wasResolved ? 1 : { increment: 1 },
     }
+    // queuedAt só muda ao reabrir — posição na fila é imutável durante o ciclo aberto
+    if (wasResolved) updateData.queuedAt = waTimestamp
     if (newCurrentMenuId !== undefined) updateData.currentMenuId = newCurrentMenuId
     if (newSector !== undefined) updateData.sector = newSector
     if (avatarUrl && !existing!.customerAvatar) updateData.customerAvatar = avatarUrl

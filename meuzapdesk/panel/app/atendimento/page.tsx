@@ -32,7 +32,7 @@ export default async function AtendimentoPage() {
       status: { in: ['in_queue', 'in_progress', 'waiting_menu'] },
     },
     include,
-    orderBy: { customerWaitingSince: 'asc' },
+    orderBy: { queuedAt: 'asc' },
   })
 
   // Normaliza todos os phones ativos (e nomes quando parecem telefone)
