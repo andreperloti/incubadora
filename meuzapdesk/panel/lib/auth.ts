@@ -85,9 +85,39 @@ export const authOptions: NextAuthOptions = {
   pages: {
     signIn: '/login',
   },
+  events: {
+    async signIn({ user }) {
+      const rawBusinessId = (user as any).businessId
+      if (!rawBusinessId) return
+      const businessId = parseInt(rawBusinessId, 10)
+      if (isNaN(businessId)) return
+
+      try {
+        const business = await prisma.business.findUnique({
+          where: { id: businessId },
+          select: { wahaSession: true },
+        })
+        if (!business?.wahaSession) return
+
+        const { getWahaSession } = await import('@/lib/whatsapp')
+        const wahaStatus = await getWahaSession(business.wahaSession)
+        if (wahaStatus?.status !== 'WORKING') return
+
+        const { importQueue, ensureImportWorker } = await import('@/lib/import-queue')
+        ensureImportWorker()
+        await importQueue.add(
+          'import',
+          { businessId, wahaSession: business.wahaSession, chatsLimit: 25, messagesPerChat: 20 },
+          { jobId: `login-import-${businessId}` }
+        )
+      } catch {
+        // Silencia erros — falha no reimport não pode impedir o login
+      }
+    },
+  },
   session: {
     strategy: 'jwt',
-    maxAge: 8 * 60 * 60, // 8 horas
+    maxAge: 14 * 24 * 60 * 60, // 2 semanas
   },
   secret: process.env.NEXTAUTH_SECRET,
 }
