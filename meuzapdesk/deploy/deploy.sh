@@ -20,10 +20,10 @@ cd "$REPO_DIR"
 git pull origin main
 
 echo "==> [2/6] Instalando dependências do panel..."
-npm --prefix "$PANEL_DIR" ci
+npm --prefix "$PANEL_DIR" install
 
 echo "==> [3/6] Instalando dependências do site..."
-npm --prefix "$SITE_DIR" ci
+npm --prefix "$SITE_DIR" install
 
 echo "==> [3b/6] Regenerando Prisma client..."
 (cd "$PANEL_DIR" && npx prisma generate)
