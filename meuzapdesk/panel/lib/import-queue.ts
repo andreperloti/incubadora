@@ -69,37 +69,13 @@ async function processImport(job: Job<ImportJobData>) {
 
   try {
     logInfo('import', `Importação iniciada`, { businessId, wahaSession, chatsLimit, messagesPerChat }, businessId).catch(() => {})
-    send({ type: 'status', message: 'Verificando número conectado...' })
+    send({ type: 'status', message: 'Carregando lista de conversas do WhatsApp...' })
 
     const business = await prisma.business.findUnique({ where: { id: businessId } })
     if (!business) {
       send({ type: 'error', message: 'Empresa não encontrada' })
       return
     }
-
-    const sessionRes = await fetch(
-      `${WAHA_API_URL}/api/sessions/${wahaSession}`,
-      { headers: wahaHeaders(), signal: AbortSignal.timeout(10_000) }
-    ).catch(() => null)
-
-    if (sessionRes?.ok) {
-      const sessionData = await sessionRes.json()
-      const connectedPhone = sessionData?.me?.id?.replace('@c.us', '') || ''
-
-      if (connectedPhone && connectedPhone !== business.whatsappNumber) {
-        send({ type: 'status', message: `Número alterado para ${connectedPhone}. Limpando conversas anteriores...` })
-
-        await prisma.message.deleteMany({ where: { conversation: { businessId } } })
-        await prisma.conversationAlert.deleteMany({ where: { conversation: { businessId } } })
-        await prisma.conversation.deleteMany({ where: { businessId } })
-        await prisma.business.update({
-          where: { id: businessId },
-          data: { whatsappNumber: connectedPhone },
-        })
-      }
-    }
-
-    send({ type: 'status', message: 'Carregando lista de conversas do WhatsApp... (pode levar alguns minutos com muitas conversas)' })
 
     const chatsRes = await fetch(
       `${WAHA_API_URL}/api/${wahaSession}/chats/overview?limit=${chatsLimit}`,
