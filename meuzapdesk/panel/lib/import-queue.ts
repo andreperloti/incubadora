@@ -155,19 +155,30 @@ async function processImport(job: Job<ImportJobData>) {
         msgsRes = await fetchMessages(chatId)
       }
 
-      // Se WAHA não conseguiu buscar mensagens, pula sem criar conversa.
-      // Isso evita criar conversas duplicadas com @lid quando o WAHA ainda está carregando.
-      if (!msgsRes?.ok) return
-
-      const overviewLastMsgTs: number | undefined = (chat.lastMessage as any)?.timestamp
-      // Fallback new Date(0) para não criar "data falsa" que empurra a conversa ao topo
+      // lastMessage do overview — usado como fallback quando WAHA não consegue carregar o chat completo.
+      // Isso acontece porque o WhatsApp Web (WEBJS) só carrega mensagens de chats que foram "abertos"
+      // na sessão atual. Para chats não abertos, cria a conversa com só a última mensagem do overview.
+      const overviewLastMsg: any = chat.lastMessage ?? null
+      const overviewLastMsgTs: number | undefined = overviewLastMsg?.timestamp
       const fallbackLastMsgAt = overviewLastMsgTs ? new Date(overviewLastMsgTs * 1000) : new Date(0)
 
-      const msgsData = await msgsRes.json()
-      const messages: any[] = Array.isArray(msgsData) ? msgsData : (msgsData.messages ?? [])
-      // Inclui mensagens com body OU com mídia (áudio, imagem, arquivo)
-      const textMessages = messages.filter((m: any) => (m.body && String(m.body).trim()) || m.hasMedia)
-      textMessages.sort((a: any, b: any) => (a.timestamp ?? 0) - (b.timestamp ?? 0))
+      let textMessages: any[] = []
+
+      if (msgsRes?.ok) {
+        const msgsData = await msgsRes.json()
+        const messages: any[] = Array.isArray(msgsData) ? msgsData : (msgsData.messages ?? [])
+        textMessages = messages.filter((m: any) => (m.body && String(m.body).trim()) || m.hasMedia)
+        textMessages.sort((a: any, b: any) => (a.timestamp ?? 0) - (b.timestamp ?? 0))
+      } else if (overviewLastMsg) {
+        // WAHA não conseguiu carregar o histórico — usa a última mensagem do overview como fallback
+        const body = (overviewLastMsg.body || '').trim()
+        if (body || overviewLastMsg.hasMedia) {
+          textMessages = [overviewLastMsg]
+        }
+      } else {
+        // Sem mensagens acessíveis e sem lastMessage — pula
+        return
+      }
 
       const lastMsgAt = textMessages.length > 0
         ? (textMessages[textMessages.length - 1].timestamp
