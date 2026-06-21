@@ -32,6 +32,12 @@ function wahaHeaders() {
   }
 }
 
+// Retorna true se o texto é um identificador interno do WhatsApp (ex: "154125069250639@lid").
+// Esses valores aparecem como body de mensagens de sistema/menção e nunca devem ser exibidos.
+export function isWhatsAppId(text: string): boolean {
+  return /^\d+@(lid|c\.us|g\.us|newsletter|broadcast)$/.test(text.trim())
+}
+
 // Normaliza número de telefone para o padrão brasileiro: sempre com DDI 55.
 // Entrada aceita: dígitos puros, formatados, com ou sem @sufixo.
 // Ex: "16 99119-8729" → "5516991198729"

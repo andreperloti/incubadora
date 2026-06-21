@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { verifyWebhookSecret, getWahaContactName, getWahaChatName, parsePhoneFromContactName, getWahaContactAvatar, getWahaContactPhone, buildOptionAutoReply, sendWhatsAppMessage, POLL_OPTIONS, getWahaMessageMedia, normalizePhone } from '@/lib/whatsapp'
+import { verifyWebhookSecret, getWahaContactName, getWahaChatName, parsePhoneFromContactName, getWahaContactAvatar, getWahaContactPhone, buildOptionAutoReply, sendWhatsAppMessage, POLL_OPTIONS, getWahaMessageMedia, normalizePhone, isWhatsAppId } from '@/lib/whatsapp'
 import { prisma } from '@/lib/db'
 import { broadcastToBusinessClients } from '@/lib/sse'
 import { logError, logInfo } from '@/lib/logger'
@@ -95,8 +95,8 @@ export async function POST(req: NextRequest) {
     msgType === 'sticker' || msgType === 'gif'
   )
 
-  // Ignora se não tem texto nem mídia reconhecida
-  if (!phone || (!text && !isAudio && !isFile)) {
+  // Ignora se não tem texto nem mídia reconhecida, ou se o body é um ID interno do WhatsApp
+  if (!phone || (!text && !isAudio && !isFile) || (text && isWhatsAppId(text))) {
     return NextResponse.json({ status: 'ignored' })
   }
 
@@ -350,7 +350,7 @@ async function handleOutgoingFromPhone({
     : '📎 Arquivo'
   const content = text || (isAudio ? '🎵 Áudio' : isFile ? fileLabel : '')
 
-  if (!content) return NextResponse.json({ status: 'ignored' })
+  if (!content || isWhatsAppId(content)) return NextResponse.json({ status: 'ignored' })
 
   // Resolve @lid → número real (necessário porque o banco armazena o número, não o @lid)
   const realPhone = await getWahaContactPhone(sessionName, rawTo)

@@ -2,7 +2,7 @@ import { Queue, Worker, Job } from 'bullmq'
 import { redisPublisher, createRedisSubscriber } from './redis'
 import { broadcastToBusinessClients } from './sse'
 import { prisma } from './db'
-import { parsePhoneFromContactName, normalizePhone } from './whatsapp'
+import { parsePhoneFromContactName, normalizePhone, isWhatsAppId } from './whatsapp'
 import { logError, logInfo, logWarn } from './logger'
 
 const WAHA_API_URL = process.env.WAHA_API_URL || 'http://localhost:3002'
@@ -167,12 +167,15 @@ async function processImport(job: Job<ImportJobData>) {
       if (msgsRes?.ok) {
         const msgsData = await msgsRes.json()
         const messages: any[] = Array.isArray(msgsData) ? msgsData : (msgsData.messages ?? [])
-        textMessages = messages.filter((m: any) => (m.body && String(m.body).trim()) || m.hasMedia)
+        textMessages = messages.filter((m: any) => {
+          const body = m.body ? String(m.body).trim() : ''
+          return (body && !isWhatsAppId(body)) || m.hasMedia
+        })
         textMessages.sort((a: any, b: any) => (a.timestamp ?? 0) - (b.timestamp ?? 0))
       } else if (overviewLastMsg) {
         // WAHA não conseguiu carregar o histórico — usa a última mensagem do overview como fallback
         const body = (overviewLastMsg.body || '').trim()
-        if (body || overviewLastMsg.hasMedia) {
+        if ((body && !isWhatsAppId(body)) || overviewLastMsg.hasMedia) {
           textMessages = [overviewLastMsg]
         }
       } else {
