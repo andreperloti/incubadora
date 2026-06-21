@@ -13,12 +13,14 @@ import {
 
 type Metrics = {
   kpis: {
-    abertas: number
+    emFila: number
+    emAtendimento: number
     resolvidasHoje: number
-    tempoMedioResposta: number
+    taxaResolucao: number
+    tempoMedioEsperaAtual: number
     alertasAtivos: number
   }
-  ranking: { name: string; atendidas: number; tempoMedio: number }[]
+  ranking: { name: string; atendidas: number; tempoMedio: number; ativoAgora: boolean }[]
   servicos: { label: string; count: number }[]
   volumePorHora: { hora: string; conversas: number }[]
 }
@@ -48,6 +50,14 @@ function KpiCard({
   )
 }
 
+function SectionLabel({ children }: { children: React.ReactNode }) {
+  return (
+    <p className="text-xs font-semibold uppercase tracking-widest mb-2" style={{ color: '#3d5060' }}>
+      {children}
+    </p>
+  )
+}
+
 export function MetricsSection() {
   const [metrics, setMetrics] = useState<Metrics | null>(null)
   const [loading, setLoading] = useState(true)
@@ -72,44 +82,95 @@ export function MetricsSection() {
 
   if (!metrics) return null
 
+  const { kpis } = metrics
   const maxServico = Math.max(...metrics.servicos.map((s) => s.count), 1)
+
+  const esperaDisplay =
+    kpis.emFila === 0
+      ? '—'
+      : kpis.tempoMedioEsperaAtual < 1
+      ? '< 1 min'
+      : `${kpis.tempoMedioEsperaAtual} min`
 
   return (
     <div className="space-y-6">
-      {/* KPI Cards */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <KpiCard label="Conversas abertas" value={metrics.kpis.abertas} accent="text-blue-400" />
-        <KpiCard label="Resolvidas hoje" value={metrics.kpis.resolvidasHoje} accent="text-green-400" />
-        <KpiCard
-          label="Tempo médio"
-          value={`${metrics.kpis.tempoMedioResposta} min`}
-          sub="do início ao encerramento"
-          accent="text-purple-400"
-        />
-        <KpiCard
-          label="Alertas ativos"
-          value={metrics.kpis.alertasAtivos}
-          accent={metrics.kpis.alertasAtivos > 0 ? 'text-red-400' : 'text-gray-400'}
-        />
+      {/* Situação atual */}
+      <div>
+        <SectionLabel>Situação atual</SectionLabel>
+        <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+          <KpiCard
+            label="Aguardando atendimento"
+            value={kpis.emFila}
+            sub={kpis.emFila > 0 ? 'na fila agora' : 'ninguém esperando'}
+            accent={kpis.emFila > 0 ? 'text-red-400' : 'text-gray-400'}
+          />
+          <KpiCard
+            label="Em atendimento"
+            value={kpis.emAtendimento}
+            sub={kpis.emAtendimento > 0 ? 'sendo atendidos' : 'nenhum em andamento'}
+            accent={kpis.emAtendimento > 0 ? 'text-green-400' : 'text-gray-400'}
+          />
+          <KpiCard
+            label="Espera média"
+            value={esperaDisplay}
+            sub="dos clientes na fila"
+            accent={
+              kpis.tempoMedioEsperaAtual === 0
+                ? 'text-gray-400'
+                : kpis.tempoMedioEsperaAtual > 15
+                ? 'text-red-400'
+                : 'text-yellow-400'
+            }
+          />
+        </div>
+      </div>
+
+      {/* Resultado do dia */}
+      <div>
+        <SectionLabel>Resultado do dia</SectionLabel>
+        <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+          <KpiCard
+            label="Resolvidas hoje"
+            value={kpis.resolvidasHoje}
+            accent="text-green-400"
+          />
+          <KpiCard
+            label="Taxa de resolução"
+            value={`${kpis.taxaResolucao}%`}
+            sub="das conversas do dia"
+            accent={
+              kpis.taxaResolucao >= 70
+                ? 'text-green-400'
+                : kpis.taxaResolucao >= 40
+                ? 'text-yellow-400'
+                : 'text-red-400'
+            }
+          />
+          <KpiCard
+            label="Alertas ativos"
+            value={kpis.alertasAtivos}
+            accent={kpis.alertasAtivos > 0 ? 'text-red-400' : 'text-gray-400'}
+          />
+        </div>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        {/* Ranking */}
+        {/* Equipe */}
         <div
           className="rounded-xl p-5"
           style={{ background: '#202c33', border: '1px solid #2a3942' }}
         >
           <h3 className="text-sm font-semibold mb-4" style={{ color: '#e9edef' }}>
-            Ranking de atendentes (hoje)
+            Equipe de hoje
           </h3>
           {metrics.ranking.length === 0 ? (
-            <p className="text-sm" style={{ color: '#8696a0' }}>Nenhum atendimento encerrado hoje.</p>
+            <p className="text-sm" style={{ color: '#8696a0' }}>Nenhum atendente ativo hoje.</p>
           ) : (
             <table className="w-full text-sm">
               <thead>
                 <tr className="text-xs border-b" style={{ color: '#8696a0', borderColor: '#2a3942' }}>
                   <th className="text-left pb-2">Atendente</th>
-                  <th className="text-right pb-2">Atendidos</th>
+                  <th className="text-right pb-2">Encerrados</th>
                   <th className="text-right pb-2">Tempo médio</th>
                 </tr>
               </thead>
@@ -122,14 +183,34 @@ export function MetricsSection() {
                   >
                     <td className="py-2 font-medium" style={{ color: '#e9edef' }}>
                       <span className="mr-2 text-xs" style={{ color: '#8696a0' }}>#{i + 1}</span>
+                      {r.ativoAgora && (
+                        <span
+                          className="inline-block w-2 h-2 rounded-full mr-1.5 mb-0.5"
+                          style={{ background: '#25D366' }}
+                          title="Em atendimento agora"
+                        />
+                      )}
                       {r.name}
                     </td>
-                    <td className="py-2 text-right font-bold text-green-400">{r.atendidas}</td>
-                    <td className="py-2 text-right" style={{ color: '#8696a0' }}>{r.tempoMedio} min</td>
+                    <td className="py-2 text-right font-bold text-green-400">
+                      {r.atendidas > 0 ? r.atendidas : '—'}
+                    </td>
+                    <td className="py-2 text-right" style={{ color: '#8696a0' }}>
+                      {r.atendidas > 0 ? `${r.tempoMedio} min` : '—'}
+                    </td>
                   </tr>
                 ))}
               </tbody>
             </table>
+          )}
+          {metrics.ranking.some((r) => r.ativoAgora) && (
+            <p className="text-xs mt-3" style={{ color: '#3d5060' }}>
+              <span
+                className="inline-block w-1.5 h-1.5 rounded-full mr-1 mb-0.5"
+                style={{ background: '#25D366' }}
+              />
+              em atendimento agora
+            </p>
           )}
         </div>
 
