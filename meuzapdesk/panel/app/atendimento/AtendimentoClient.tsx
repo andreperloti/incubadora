@@ -1064,6 +1064,10 @@ export function AtendimentoClient({
               })
             }
 
+            // Se a conversa estava no histórico recente, remove-a de lá imediatamente
+            // (o refreshList já a coloca na lista ativa se o status mudou para in_progress)
+            setRecentConversations((prev) => prev.filter((c) => c.id !== event.conversationId))
+
             refreshList()
           }
 
@@ -1469,7 +1473,7 @@ export function AtendimentoClient({
                     return (
                       <button
                         key={conv.id}
-                        onClick={() => setSelectedId(conv.id)}
+                        onClick={() => handleSelectConv(conv.id)}
                         className={clsx(
                           'w-full text-left px-3 py-3 flex items-start gap-3 transition-colors border-b border-l-4 border-l-transparent',
                           isSelected ? 'bg-gray-800' : 'hover:bg-gray-900'
