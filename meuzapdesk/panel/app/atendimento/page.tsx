@@ -40,6 +40,7 @@ export default async function AtendimentoPage() {
   const activeNormalized = new Set<string>()
   for (const c of active) {
     activeNormalized.add(normalizePhone(c.customerPhone))
+    if ((c as any).customerRealPhone) activeNormalized.add(normalizePhone((c as any).customerRealPhone))
     if (c.customerName) {
       const n = normalizePhone(c.customerName)
       if (n.length >= 10) activeNormalized.add(n)
@@ -59,17 +60,21 @@ export default async function AtendimentoPage() {
   const seenNormalized = new Set<string>()
   const recent = recentRaw.filter((c) => {
     const phoneNorm = normalizePhone(c.customerPhone)
+    const realPhoneNorm = (c as any).customerRealPhone ? normalizePhone((c as any).customerRealPhone) : null
     const nameNorm = c.customerName ? normalizePhone(c.customerName) : null
 
-    // Exclui se já tem conversa ativa com esse número
+    // Exclui se já tem conversa ativa com esse número (checa phone e realPhone)
     if (activeNormalized.has(phoneNorm)) return false
+    if (realPhoneNorm && activeNormalized.has(realPhoneNorm)) return false
     if (nameNorm && nameNorm.length >= 10 && activeNormalized.has(nameNorm)) return false
 
     // Deduplica: mantém apenas a mais recente por número normalizado
     if (seenNormalized.has(phoneNorm)) return false
+    if (realPhoneNorm && seenNormalized.has(realPhoneNorm)) return false
     if (nameNorm && nameNorm.length >= 10 && seenNormalized.has(nameNorm)) return false
 
     seenNormalized.add(phoneNorm)
+    if (realPhoneNorm) seenNormalized.add(realPhoneNorm)
     if (nameNorm && nameNorm.length >= 10) seenNormalized.add(nameNorm)
     return true
   }).slice(0, 20)

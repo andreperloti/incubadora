@@ -191,8 +191,16 @@ async function processImport(job: Job<ImportJobData>) {
 
       const withoutDdi = customerPhone.startsWith('55') ? customerPhone.slice(2) : customerPhone
       const searchPhones = Array.from(new Set([customerPhone, withoutDdi, resolvedChatId, chatId].filter(Boolean)))
+      // Somente dígitos puros para cruzar com customerRealPhone (que nunca tem @suffix)
+      const numericPhones = searchPhones.filter((p) => /^\d+$/.test(p))
       let conversation = await prisma.conversation.findFirst({
-        where: { businessId, customerPhone: { in: searchPhones } },
+        where: {
+          businessId,
+          OR: [
+            { customerPhone: { in: searchPhones } },
+            ...(numericPhones.length > 0 ? [{ customerRealPhone: { in: numericPhones } }] : []),
+          ],
+        },
         orderBy: { createdAt: 'desc' },
       })
 
